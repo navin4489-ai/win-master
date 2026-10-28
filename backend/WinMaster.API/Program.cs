@@ -9,6 +9,11 @@ using WinMaster.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Render (and most PaaS) inject the port to listen on via $PORT. Honor it, else default 10000.
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
 builder.Services.AddWinMasterInfrastructure(builder.Configuration);
 
 builder.Services.AddControllers()
@@ -50,13 +55,31 @@ builder.Services.AddCors(o => o.AddPolicy("web", p =>
 
 var app = builder.Build();
 
-// Apply migrations / create schema + seed.
+// Apply migrations / create schema + seed — resilient so a cold/slow DB never prevents the
+// web server from starting (Render marks the deploy failed if no port opens).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    try { if (db.Database.IsRelational() && db.Database.GetPendingMigrations().Any()) db.Database.Migrate(); else db.Database.EnsureCreated(); }
-    catch { db.Database.EnsureCreated(); }
-    DbSeeder.Seed(db);
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    for (var attempt = 1; attempt <= 10; attempt++)
+    {
+        try
+        {
+            if (db.Database.IsRelational() && db.Database.GetPendingMigrations().Any())
+                db.Database.Migrate();
+            else
+                db.Database.EnsureCreated();
+            DbSeeder.Seed(db);
+            logger.LogInformation("Database ready (attempt {Attempt}).", attempt);
+            break;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "DB init attempt {Attempt}/10 failed; retrying…", attempt);
+            if (attempt == 10) logger.LogError(ex, "DB init gave up; API will still start.");
+            else Thread.Sleep(3000);
+        }
+    }
 }
 
 app.UseMiddleware<WinMaster.API.ErrorHandlingMiddleware>();
@@ -76,10 +99,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+// Liveness: return 200 as soon as the web server is up so Render marks the deploy healthy.
+// DB connectivity is reported as a sub-status but never fails the health check.
 app.MapGet("/healthz", async (AppDbContext db) =>
 {
-    try { await db.Database.CanConnectAsync(); return Results.Ok(new { status = "healthy" }); }
-    catch (Exception ex) { return Results.Problem(ex.Message); }
+    bool dbOk;
+    try { dbOk = await db.Database.CanConnectAsync(); } catch { dbOk = false; }
+    return Results.Ok(new { status = "healthy", database = dbOk ? "connected" : "connecting" });
 });
 
 // SPA fallback: serve the Angular index.html for non-API routes.

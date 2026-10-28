@@ -72,7 +72,9 @@ public static class DependencyInjection
         var sslmode = ParseQuery(uri.Query).GetValueOrDefault("sslmode");
         var cs = $"Host={uri.Host};Port={(uri.IsDefaultPort ? 5432 : uri.Port)};Database={db};" +
                  $"Username={Uri.UnescapeDataString(userInfo[0])};Password={Uri.UnescapeDataString(userInfo.ElementAtOrDefault(1) ?? "")}";
-        if (!string.IsNullOrEmpty(sslmode)) cs += $";SSL Mode={(sslmode == "disable" ? "Disable" : "Require")};Trust Server Certificate=true";
+        // Render managed Postgres requires TLS. Default to Require unless the URL explicitly disables it.
+        var disable = string.Equals(sslmode, "disable", StringComparison.OrdinalIgnoreCase);
+        cs += disable ? ";SSL Mode=Disable" : ";SSL Mode=Require;Trust Server Certificate=true";
         return cs;
     }
 
