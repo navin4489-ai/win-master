@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/.angular/
+**/.dart_tool/
+mobile/
+services/
+docs/requirements/
+*.db
+*.md
+.git/
+.gitignore

@@ -1,0 +1,30 @@
+# .NET
+bin/
+obj/
+*.user
+appsettings.*.local.json
+*.db
+*.db-shm
+*.db-wal
+
+# Node / Angular
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+
+# Flutter
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins*
+mobile/.idea/
+
+# Node bridge
+services/wa-bridge/node_modules/
+services/wa-bridge/sessions/
+
+# Misc
+.DS_Store
+*.log
+.vs/
+.vscode/

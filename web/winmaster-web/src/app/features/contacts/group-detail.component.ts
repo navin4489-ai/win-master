@@ -1,0 +1,90 @@
+import { Component, OnInit, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ApiService } from '../../core/api.service';
+import { ToastService } from '../../core/toast.service';
+import { Contact } from '../../core/models';
+
+@Component({
+  selector: 'app-group-detail',
+  standalone: true,
+  imports: [FormsModule, RouterLink],
+  template: `
+  <a routerLink="/contacts" class="muted">← Contacts</a>
+  <div class="page-head" style="margin-top:.6rem">
+    <h1>Group contacts</h1>
+    <div class="row-actions">
+      <label class="btn btn-ghost" style="cursor:pointer">Import CSV/XLSX<input type="file" hidden accept=".csv,.xlsx" (change)="onFile($event)" /></label>
+      <button class="btn btn-ghost" (click)="validateVisible()">Validate numbers</button>
+    </div>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:1rem">
+    <div class="flex gap">
+      <input class="input" placeholder="Search…" [(ngModel)]="q" (keyup.enter)="load()" style="max-width:260px" />
+      <select class="input" [(ngModel)]="valid" (change)="load()" style="max-width:180px">
+        <option [ngValue]="undefined">All</option><option [ngValue]="true">On WhatsApp</option><option [ngValue]="false">Not registered</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead><tr><th>Phone</th><th>Name</th><th>On WhatsApp</th><th>Tags</th><th></th></tr></thead>
+      <tbody>
+        @for (c of items(); track c.id) {
+          <tr>
+            <td>{{ c.phone }}</td><td>{{ c.name }}</td>
+            <td>@if (c.waRegistered === true) { <span class="badge badge-green">Yes</span> } @else if (c.waRegistered === false) { <span class="badge badge-red">No</span> } @else { <span class="badge badge-gray">?</span> }</td>
+            <td>@for (t of c.tags; track t) { <span class="badge badge-blue" style="margin-right:3px">{{ t }}</span> }</td>
+            <td><button class="btn btn-danger btn-sm" (click)="del(c)">Delete</button></td>
+          </tr>
+        }
+        @if (!items().length && !loading()) { <tr><td colspan="5" class="empty">No contacts</td></tr> }
+      </tbody>
+    </table>
+    <div class="card-pad between">
+      <span class="muted">{{ total() }} contacts</span>
+      <div class="row-actions">
+        <button class="btn btn-ghost btn-sm" [disabled]="page()<=1" (click)="go(-1)">Prev</button>
+        <span>Page {{ page() }}</span>
+        <button class="btn btn-ghost btn-sm" [disabled]="page()*pageSize>=total()" (click)="go(1)">Next</button>
+      </div>
+    </div>
+  </div>
+  `
+})
+export class GroupDetailComponent implements OnInit {
+  private api = inject(ApiService);
+  private route = inject(ActivatedRoute);
+  private toast = inject(ToastService);
+  items = signal<Contact[]>([]);
+  loading = signal(true);
+  page = signal(1);
+  total = signal(0);
+  pageSize = 50;
+  q = ''; valid: boolean | undefined = undefined;
+  id = 0;
+
+  ngOnInit() { this.id = +this.route.snapshot.params['id']; this.load(); }
+  load() {
+    this.loading.set(true);
+    this.api.groupContacts(this.id, { q: this.q, valid: this.valid, page: this.page(), pageSize: this.pageSize }).subscribe({
+      next: r => { this.items.set(r.items); this.total.set(r.totalCount); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.toast.error('API unreachable'); }
+    });
+  }
+  go(d: number) { this.page.update(p => Math.max(1, p + d)); this.load(); }
+  del(c: Contact) { this.api.deleteContact(c.id).subscribe(() => { this.toast.success('Deleted'); this.load(); }); }
+  onFile(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
+    this.api.importContacts(this.id, file).subscribe({
+      next: r => { this.toast.success(`Imported ${r.imported}, ${r.duplicates} dupes, ${r.invalid} invalid`); this.load(); },
+      error: ex => this.toast.error(ex?.error?.detail || 'Import failed')
+    });
+  }
+  validateVisible() {
+    const phones = this.items().map(c => c.phone);
+    this.api.validatePhones(phones).subscribe(r => { const ok = r.filter(x => x.waRegistered).length; this.toast.success(`${ok}/${r.length} on WhatsApp`); });
+  }
+}
