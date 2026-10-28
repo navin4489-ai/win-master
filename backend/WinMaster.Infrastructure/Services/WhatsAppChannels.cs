@@ -86,9 +86,17 @@ public class BaileysBridgeChannel : IWhatsAppChannel
         }
         catch (Exception ex)
         {
-            // When the bridge is offline (dev), simulate so campaigns can be exercised end-to-end.
-            _log.LogWarning(ex, "Bridge unreachable; simulating send for account {AccountId}", accountId);
-            return new SendResult(true, $"wamid.sim.{Guid.NewGuid():N}", null);
+            // Only simulate when explicitly enabled (local dev). In production a send
+            // failure MUST be reported as a failure — never fake success, or campaigns
+            // would report "Sent" while nothing was delivered.
+            var simulate = string.Equals(_cfg["Bridge:SimulateWhenOffline"], "true", StringComparison.OrdinalIgnoreCase);
+            if (simulate)
+            {
+                _log.LogWarning(ex, "Bridge unreachable; simulating send for account {AccountId}", accountId);
+                return new SendResult(true, $"wamid.sim.{Guid.NewGuid():N}", null);
+            }
+            _log.LogError(ex, "Bridge unreachable for account {AccountId}", accountId);
+            return new SendResult(false, null, $"Bridge unreachable: {ex.Message}");
         }
     }
 
