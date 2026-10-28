@@ -181,7 +181,9 @@ export async function sendMessage(accountId, { to, text, mediaUrl, mediaType }) 
 
   const content = buildContent({ text, mediaUrl, mediaType });
   const sent = await entry.sock.sendMessage(jid, content);
-  return sent?.key?.id ?? null;
+  const id = sent?.key?.id ?? null;
+  logger.info({ accountId, jid, messageId: id }, "message sent");
+  return id;
 }
 
 // Builds a Baileys message content object from the API's send payload.

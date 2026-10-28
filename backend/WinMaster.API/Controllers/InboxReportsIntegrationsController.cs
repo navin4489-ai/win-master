@@ -122,6 +122,32 @@ public class IntegrationsController : ControllerBase
         }
     }
 
+    /// <summary>Diagnostic: sends a message straight through the bridge and returns the RAW result
+    /// (real WhatsApp message id or the exact error) — no worker, no simulation fallback.</summary>
+    [AllowAnonymous]
+    [HttpGet("bridge/testsend")]
+    public async Task<IActionResult> BridgeTestSend([FromServices] IHttpClientFactory httpFactory,
+        [FromQuery] int accountId, [FromQuery] string to, [FromQuery] string? text)
+    {
+        var baseUrl = (_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001").TrimEnd('/');
+        var key = _cfg["Bridge:Key"] ?? "dev-bridge-key";
+        try
+        {
+            var client = httpFactory.CreateClient("bridge");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Remove("X-Bridge-Key");
+            client.DefaultRequestHeaders.Add("X-Bridge-Key", key);
+            var payload = new { to, text = text ?? "diagnostic test", mediaUrl = (string?)null, mediaType = "None" };
+            var resp = await client.PostAsJsonAsync($"{baseUrl}/sessions/{accountId}/send", payload);
+            var body = await resp.Content.ReadAsStringAsync();
+            return Ok(new { sentTo = to, httpStatus = (int)resp.StatusCode, ok = resp.IsSuccessStatusCode, rawBridgeResponse = body });
+        }
+        catch (Exception ex)
+        {
+            return Ok(new { sentTo = to, ok = false, error = ex.GetType().Name, message = ex.Message });
+        }
+    }
+
     [AllowAnonymous]
     [HttpPost("webhooks/meta")]
     public IActionResult MetaWebhook() => Ok(new { received = true });
