@@ -23,6 +23,7 @@ import { Campaign, CampaignProgress, CampaignRecipient } from '../../core/models
         @if (c.status === 'Running') { <button class="btn btn-ghost" (click)="action('pause')">Pause</button> }
         @if (c.status === 'Paused') { <button class="btn btn-primary" (click)="action('resume')">Resume</button> }
         @if (c.status === 'Running' || c.status === 'Paused') { <button class="btn btn-danger" (click)="action('stop')">Stop</button> }
+        @if (c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed') { <button class="btn btn-primary" (click)="action('restart')">↻ Restart</button> }
         <button class="btn btn-ghost" (click)="download('csv')">Export CSV</button>
         <button class="btn btn-ghost" (click)="download('xlsx')">Export XLSX</button>
       </div>

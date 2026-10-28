@@ -96,6 +96,25 @@ public class CampaignService
                 c.Status = CampaignStatus.Running; break;
             case "stop":
                 c.Status = CampaignStatus.Stopped; c.CompletedAt = DateTime.UtcNow; break;
+            case "restart":
+                // Re-send the same message to the same numbers: reset every recipient to
+                // Pending, clear per-recipient results and the checkpoint, then run again.
+                if (c.Status is CampaignStatus.Running)
+                    throw new BusinessException("Stop or pause the campaign before restarting.");
+                await EnsureRecipientsAsync(c);
+                await _db.CampaignRecipients.Where(r => r.CampaignId == c.Id).ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Status, RecipientStatus.Pending)
+                    .SetProperty(r => r.SentAt, (DateTime?)null)
+                    .SetProperty(r => r.DeliveredAt, (DateTime?)null)
+                    .SetProperty(r => r.ReadAt, (DateTime?)null)
+                    .SetProperty(r => r.Error, (string?)null)
+                    .SetProperty(r => r.MessageId, (string?)null));
+                var cp = await _db.CampaignCheckpoints.FirstOrDefaultAsync(x => x.CampaignId == c.Id);
+                if (cp is not null) _db.CampaignCheckpoints.Remove(cp);
+                c.ProcessedCount = 0; c.FailedCount = 0; c.CompletedAt = null;
+                c.StartedAt = DateTime.UtcNow;
+                c.Status = CampaignStatus.Running;
+                break;
             default: throw new BusinessException("Unknown action.");
         }
         await _db.SaveChangesAsync();

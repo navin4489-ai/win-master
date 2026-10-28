@@ -40,6 +40,7 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
               @if (c.status === 'Draft' || c.status === 'Scheduled' || c.status === 'Paused') { <button class="btn btn-primary btn-sm" (click)="action(c,'start')">Start</button> }
               @if (c.status === 'Running') { <button class="btn btn-ghost btn-sm" (click)="action(c,'pause')">Pause</button> }
               @if (c.status === 'Running' || c.status === 'Paused') { <button class="btn btn-danger btn-sm" (click)="action(c,'stop')">Stop</button> }
+              @if (c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed') { <button class="btn btn-primary btn-sm" (click)="action(c,'restart')">Restart</button> }
             </td>
           </tr>
         }

@@ -84,6 +84,7 @@ public class CampaignsController : ApiControllerBase
     [HttpPost("{id:int}/pause")] public async Task<ActionResult<CampaignDto>> Pause(int id) => Ok(await _svc.TransitionAsync(UserId, id, "pause"));
     [HttpPost("{id:int}/resume")] public async Task<ActionResult<CampaignDto>> Resume(int id) => Ok(await _svc.TransitionAsync(UserId, id, "resume"));
     [HttpPost("{id:int}/stop")] public async Task<ActionResult<CampaignDto>> Stop(int id) => Ok(await _svc.TransitionAsync(UserId, id, "stop"));
+    [HttpPost("{id:int}/restart")] public async Task<ActionResult<CampaignDto>> Restart(int id) => Ok(await _svc.TransitionAsync(UserId, id, "restart"));
     [HttpGet("{id:int}/progress")] public async Task<ActionResult<CampaignProgress>> Progress(int id) => Ok(await _svc.ProgressAsync(UserId, id));
     [HttpGet("{id:int}/recipients")] public async Task<ActionResult<PagedResult<CampaignRecipientDto>>> Recipients(int id, string? status, int page = 1, int pageSize = 50)
         => Ok(await _svc.RecipientsAsync(UserId, id, status, Page(page, pageSize)));

@@ -141,6 +141,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
                   FilledButton.icon(onPressed: () => _action('resume'), icon: const Icon(Icons.play_arrow), label: const Text('Resume')),
                 if (p.status == 'Running' || p.status == 'Paused')
                   OutlinedButton.icon(onPressed: () => _action('stop'), icon: const Icon(Icons.stop), label: const Text('Stop')),
+                if (p.status == 'Completed' || p.status == 'Stopped' || p.status == 'Failed')
+                  FilledButton.icon(onPressed: () => _action('restart'), icon: const Icon(Icons.refresh), label: const Text('Restart')),
               ]),
             ]),
     );
