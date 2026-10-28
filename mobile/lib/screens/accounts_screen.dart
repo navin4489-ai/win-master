@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/config.dart';
 import '../data/providers.dart';
 import '../data/models.dart';
 import '../widgets/ui.dart';
@@ -11,11 +13,143 @@ final accountsProvider = FutureProvider.autoDispose<List<WaAccount>>((ref) async
 
 class AccountsScreen extends ConsumerWidget {
   const AccountsScreen({super.key});
+
+  Future<void> _addAccount(BuildContext context, WidgetRef ref) async {
+    final name = TextEditingController();
+    final phone = TextEditingController();
+    String engine = 'Baileys';
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Add WhatsApp account', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 12),
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Display name')),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: engine,
+              decoration: const InputDecoration(labelText: 'Engine'),
+              items: const [DropdownMenuItem(value: 'Baileys', child: Text('Baileys')), DropdownMenuItem(value: 'CloudApi', child: Text('Cloud API'))],
+              onChanged: (v) => setState(() => engine = v ?? 'Baileys'),
+            ),
+            const SizedBox(height: 10),
+            TextField(controller: phone, decoration: const InputDecoration(labelText: 'Phone number', hintText: '+1...')),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+            const SizedBox(height: 16),
+          ]),
+        ),
+      ),
+    );
+    if (saved != true) return;
+    try {
+      await ref.read(apiProvider).post('/api/whatsapp-accounts', body: {
+        'engineType': engine, 'displayName': name.text, 'phoneNumber': phone.text, 'proxyId': null, 'credentials': null,
+      });
+      ref.invalidate(accountsProvider);
+      if (context.mounted) showOk(context, 'Account added');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _connect(BuildContext context, WidgetRef ref, WaAccount a) async {
+    try {
+      await ref.read(apiProvider).post('/api/whatsapp-accounts/${a.id}/connect');
+      final qr = await ref.read(apiProvider).get('/api/whatsapp-accounts/${a.id}/qr');
+      ref.invalidate(accountsProvider);
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Scan QR — ${a.displayName}'),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: const Color(0xFFF6F8FB), borderRadius: BorderRadius.circular(10)),
+                child: SelectableText(qr['qrData']?.toString() ?? 'Waiting for QR…', style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+              ),
+              const SizedBox(height: 10),
+              const Text('Open WhatsApp → Linked devices → Link a device', style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90))),
+            ]),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _disconnect(BuildContext context, WidgetRef ref, WaAccount a) async {
+    try {
+      await ref.read(apiProvider).post('/api/whatsapp-accounts/${a.id}/disconnect');
+      ref.invalidate(accountsProvider);
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _antiBan(BuildContext context, WidgetRef ref, WaAccount a) async {
+    Map<String, dynamic> s;
+    try {
+      s = Map<String, dynamic>.from(await ref.read(apiProvider).get('/api/anti-ban/${a.id}'));
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+      return;
+    }
+    int minD = s['minDelaySec'] ?? 5, maxD = s['maxDelaySec'] ?? 15, batch = s['batchSize'] ?? 50, cool = s['cooldownMinutes'] ?? 5, cap = s['dailyCap'] ?? 1000;
+    if (!context.mounted) return;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('Anti-ban — ${a.displayName}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            _row('Min delay (s): $minD', minD, 1, 60, (v) => setState(() => minD = v)),
+            _row('Max delay (s): $maxD', maxD, 1, 120, (v) => setState(() => maxD = v)),
+            _row('Batch size: $batch', batch, 10, 500, (v) => setState(() => batch = v)),
+            _row('Cooldown (min): $cool', cool, 0, 60, (v) => setState(() => cool = v)),
+            _row('Daily cap: $cap', cap, 100, 5000, (v) => setState(() => cap = v)),
+            const SizedBox(height: 8),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+            const SizedBox(height: 16),
+          ]),
+        ),
+      ),
+    );
+    if (saved != true) return;
+    try {
+      await ref.read(apiProvider).put('/api/anti-ban/${a.id}', body: {
+        'minDelaySec': minD, 'maxDelaySec': maxD, 'batchSize': batch, 'cooldownMinutes': cool, 'dailyCap': cap,
+      });
+      if (context.mounted) showOk(context, 'Anti-ban saved');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  static Widget _row(String label, int value, int min, int max, ValueChanged<int> onChanged) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7A90))),
+          Slider(value: value.toDouble().clamp(min.toDouble(), max.toDouble()), min: min.toDouble(), max: max.toDouble(),
+              divisions: ((max - min) ~/ (max > 100 ? 10 : 1)).clamp(1, 1000), label: '$value', onChanged: (v) => onChanged(v.round())),
+        ],
+      );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(accountsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('WhatsApp Accounts')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _addAccount(context, ref), icon: const Icon(Icons.add), label: const Text('Add')),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(accountsProvider),
         child: async.when(
@@ -47,6 +181,14 @@ class AccountsScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text('${a.sentToday}/${a.dailyLimit} sent today', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A90))),
+                          const SizedBox(height: 8),
+                          Wrap(spacing: 6, children: [
+                            if (a.engineType == 'Baileys' && a.status != 'Connected')
+                              FilledButton.tonalIcon(onPressed: () => _connect(context, ref, a), icon: const Icon(Icons.qr_code, size: 18), label: const Text('Connect')),
+                            if (a.status == 'Connected')
+                              OutlinedButton(onPressed: () => _disconnect(context, ref, a), child: const Text('Disconnect')),
+                            OutlinedButton.icon(onPressed: () => _antiBan(context, ref, a), icon: const Icon(Icons.shield_outlined, size: 18), label: const Text('Anti-ban')),
+                          ]),
                         ]),
                       ),
                     );

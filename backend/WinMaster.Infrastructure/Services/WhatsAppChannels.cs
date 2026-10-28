@@ -78,7 +78,11 @@ public class BaileysBridgeChannel : IWhatsAppChannel
                 var result = await resp.Content.ReadFromJsonAsync<BridgeSendResponse>(cancellationToken: ct);
                 return new SendResult(true, result?.MessageId ?? $"wamid.bridge.{Guid.NewGuid():N}", null);
             }
-            return new SendResult(false, null, $"Bridge returned {(int)resp.StatusCode}");
+            // Surface the bridge's reason (e.g. "session not connected", "not on WhatsApp")
+            // so failures are actionable instead of an opaque status code.
+            var reason = await resp.Content.ReadAsStringAsync(ct);
+            reason = ExtractError(reason);
+            return new SendResult(false, null, string.IsNullOrWhiteSpace(reason) ? $"Bridge returned {(int)resp.StatusCode}" : reason);
         }
         catch (Exception ex)
         {
@@ -89,6 +93,21 @@ public class BaileysBridgeChannel : IWhatsAppChannel
     }
 
     private record BridgeSendResponse(string MessageId);
+
+    // Pulls the "error" field out of the bridge's JSON error response, if present.
+    private static string ExtractError(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("error", out var err))
+                return err.GetString() ?? "";
+        }
+        catch { /* not JSON; fall through */ }
+        return body.Length > 200 ? body[..200] : body;
+    }
 }
 
 /// <summary>Controls Baileys sessions on the out-of-process bridge.</summary>

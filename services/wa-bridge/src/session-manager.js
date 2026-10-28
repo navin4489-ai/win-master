@@ -167,6 +167,18 @@ export async function sendMessage(accountId, { to, text, mediaUrl, mediaType }) 
     throw new Error("session not connected");
   }
   const jid = normalizeJid(to);
+
+  // Verify the recipient is actually on WhatsApp so a bad/unregistered number
+  // fails with a clear reason instead of silently going nowhere.
+  try {
+    const results = await entry.sock.onWhatsApp(jid);
+    const exists = Array.isArray(results) && results.some((r) => r?.exists);
+    if (!exists) throw new Error("recipient is not on WhatsApp");
+  } catch (err) {
+    if (err.message === "recipient is not on WhatsApp") throw err;
+    // If the check itself fails (network), fall through and attempt the send.
+  }
+
   const content = buildContent({ text, mediaUrl, mediaType });
   const sent = await entry.sock.sendMessage(jid, content);
   return sent?.key?.id ?? null;

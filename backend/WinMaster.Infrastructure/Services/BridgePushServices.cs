@@ -30,6 +30,12 @@ public class BridgeService
             case "disconnected":
                 await WithAccount(ev.AccountId, a => a.Status = WaAccountStatus.Disconnected);
                 break;
+            case "bridge_restarted":
+                // The bridge came up with no live sessions (free-tier restart wipes them).
+                // Flip any accounts still marked Connected to Disconnected so the UI
+                // prompts a re-scan instead of silently failing every send.
+                await MarkAllDisconnectedAsync();
+                break;
             case "message":
                 await IngestInboundAsync(ev);
                 break;
@@ -135,6 +141,20 @@ public class BridgeService
         if (acc is null) return;
         mutate(acc);
         await _db.SaveChangesAsync();
+    }
+
+    private async Task MarkAllDisconnectedAsync()
+    {
+        var connected = await _db.WhatsAppAccounts
+            .Where(a => a.EngineType == EngineType.Baileys &&
+                        (a.Status == WaAccountStatus.Connected || a.Status == WaAccountStatus.QrReady || a.Status == WaAccountStatus.Connecting))
+            .ToListAsync();
+        foreach (var a in connected)
+        {
+            a.Status = WaAccountStatus.Disconnected;
+            a.QrData = null; a.QrPngBase64 = null; a.QrExpiresAt = null;
+        }
+        if (connected.Count > 0) await _db.SaveChangesAsync();
     }
 
     private static string? Str(JsonElement el, string prop) =>

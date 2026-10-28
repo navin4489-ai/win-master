@@ -30,6 +30,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     return Scaffold(
       appBar: AppBar(title: Text(_titles[_index])),
       body: IndexedStack(index: _index, children: _pages),
+      floatingActionButton: _index == 1
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push('/campaigns/new'),
+              icon: const Icon(Icons.add),
+              label: const Text('New Campaign'),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
@@ -51,12 +58,30 @@ class MoreScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.read(authProvider.notifier);
     final items = <Widget>[
+      _section('Messaging'),
+      _tile(context, Icons.description_outlined, 'Templates', '/templates'),
+      _tile(context, Icons.smart_toy_outlined, 'Auto-Reply Rules', '/rules'),
+      _tile(context, Icons.auto_awesome, 'AI Chatbot & Generator', '/ai'),
+      _section('Infrastructure'),
       _tile(context, Icons.smartphone, 'WhatsApp Accounts', '/accounts'),
-      if (auth.atLeast('Reseller')) _tile(context, Icons.vpn_key, 'Licenses', '/licenses'),
+      _tile(context, Icons.router_outlined, 'Proxies', '/proxies'),
+      _section('Insights'),
+      _tile(context, Icons.bar_chart, 'Reports', '/reports'),
+      if (auth.atLeast('Reseller')) ...[
+        _section('Administration'),
+        _tile(context, Icons.vpn_key, 'Licenses', '/licenses'),
+      ],
+      if (auth.atLeast('Admin')) _tile(context, Icons.group_outlined, 'Users', '/users'),
       _tile(context, Icons.settings, 'Settings', '/settings'),
     ];
     return ListView(padding: const EdgeInsets.all(12), children: items);
   }
+
+  Widget _section(String label) => Padding(
+        padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+        child: Text(label.toUpperCase(),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF6B7A90), letterSpacing: .6)),
+      );
 
   Widget _tile(BuildContext context, IconData icon, String label, String route) => Card(
         margin: const EdgeInsets.only(bottom: 8),

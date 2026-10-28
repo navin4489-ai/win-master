@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../data/providers.dart';
 import '../data/models.dart';
 import '../widgets/ui.dart';
@@ -36,6 +37,7 @@ class ContactsScreen extends ConsumerWidget {
                         for (final t in g.tags.take(2))
                           Chip(label: Text(t, style: const TextStyle(fontSize: 11)), visualDensity: VisualDensity.compact),
                       ]),
+                      onTap: () => context.push('/contacts/${g.id}', extra: g.name),
                     ),
                   );
                 },

@@ -88,9 +88,14 @@ app.post("/sessions/:id/send", async (req, res) => {
   }
 });
 
-app.listen(config.port, () => {
+app.listen(config.port, async () => {
   logger.info(
     { port: config.port, apiBaseUrl: config.apiBaseUrl },
     "wa-bridge listening"
   );
+  // Tell the API we started with no live sessions so it can un-stick any
+  // accounts still marked Connected from before a restart (free tier has no
+  // session persistence). AccountId 0 is a sentinel: "applies to all".
+  const { pushEvent } = await import("./callback.js");
+  await pushEvent("bridge_restarted", 0, {});
 });

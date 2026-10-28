@@ -65,7 +65,8 @@ public static class PhoneUtils
     public static bool IsValid(string raw)
     {
         var n = Normalize(raw).TrimStart('+');
-        return n.Length >= 8 && n.Length <= 15;
+        // Real international mobile numbers are 10–15 digits (E.164).
+        return n.Length >= 10 && n.Length <= 15;
     }
 
     public static string Mask(string phone)
