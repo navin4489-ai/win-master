@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<IWhatsAppChannel, MetaCloudChannel>();
         services.AddScoped<IWhatsAppChannel, BaileysBridgeChannel>();
         services.AddScoped<IWhatsAppChannelFactory, WhatsAppChannelFactory>();
+        services.AddScoped<IWaBridgeClient, WaBridgeClient>();
         services.AddSingleton<IPushService, NoOpPushService>();
 
         services.AddSingleton<TokenService>();

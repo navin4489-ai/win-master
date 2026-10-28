@@ -107,6 +107,8 @@ public class WhatsAppAccount : BaseEntity
     /// <summary>Encrypted CloudApi credentials JSON (phoneNumberId, accessToken, wabaId).</summary>
     public string? CredentialsEnc { get; set; }
     public string? QrData { get; set; }
+    /// <summary>Base64-encoded PNG of the QR, rendered by the bridge for direct display.</summary>
+    public string? QrPngBase64 { get; set; }
     public DateTime? QrExpiresAt { get; set; }
 }
 

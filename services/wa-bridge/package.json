@@ -1,0 +1,21 @@
+{
+  "name": "wa-bridge",
+  "version": "1.0.0",
+  "description": "Win Master WhatsApp (Baileys) bridge: QR sessions, outbound send, and event callbacks to the .NET API.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.21.2",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}

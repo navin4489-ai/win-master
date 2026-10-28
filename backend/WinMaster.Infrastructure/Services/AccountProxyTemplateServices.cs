@@ -15,7 +15,9 @@ public class AccountService
 {
     private readonly AppDbContext _db;
     private readonly IEncryptionService _enc;
-    public AccountService(AppDbContext db, IEncryptionService enc) { _db = db; _enc = enc; }
+    private readonly IWaBridgeClient _bridge;
+    public AccountService(AppDbContext db, IEncryptionService enc, IWaBridgeClient bridge)
+    { _db = db; _enc = enc; _bridge = bridge; }
 
     public async Task<List<WaAccountDto>> ListAsync(int ownerId) =>
         (await _db.WhatsAppAccounts.Include(a => a.Proxy).Where(a => a.OwnerId == ownerId).ToListAsync())
@@ -62,23 +64,41 @@ public class AccountService
     public async Task<WaAccountDto> ConnectAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
-        acc.Status = WaAccountStatus.QrReady;
-        acc.QrData = $"2@{Guid.NewGuid():N}";
-        acc.QrExpiresAt = DateTime.UtcNow.AddSeconds(60);
+        if (acc.EngineType != EngineType.Baileys)
+            throw new BusinessException("QR connect is only available for Baileys accounts.");
+
+        // Clear any stale QR and move to Connecting; the real QR arrives via the
+        // bridge callback (POST /api/bridge/events) which flips status to QrReady.
+        acc.Status = WaAccountStatus.Connecting;
+        acc.QrData = null;
+        acc.QrPngBase64 = null;
+        acc.QrExpiresAt = null;
         await _db.SaveChangesAsync();
+
+        var ok = await _bridge.ConnectAsync(id);
+        if (!ok)
+        {
+            acc.Status = WaAccountStatus.Error;
+            await _db.SaveChangesAsync();
+            throw new BusinessException("WhatsApp bridge is unavailable. Please try again shortly.");
+        }
         return acc.ToDto();
     }
 
     public async Task<QrResponse> QrAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
-        return new QrResponse(acc.QrData, null, acc.QrExpiresAt);
+        return new QrResponse(acc.QrData, acc.QrPngBase64, acc.QrExpiresAt);
     }
 
     public async Task DisconnectAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
-        acc.Status = WaAccountStatus.Disconnected; acc.QrData = null;
+        await _bridge.DisconnectAsync(id, wipe: true);
+        acc.Status = WaAccountStatus.Disconnected;
+        acc.QrData = null;
+        acc.QrPngBase64 = null;
+        acc.QrExpiresAt = null;
         await _db.SaveChangesAsync();
     }
 

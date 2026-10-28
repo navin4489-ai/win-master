@@ -91,6 +91,47 @@ public class BaileysBridgeChannel : IWhatsAppChannel
     private record BridgeSendResponse(string MessageId);
 }
 
+/// <summary>Controls Baileys sessions on the out-of-process bridge.</summary>
+public class WaBridgeClient : IWaBridgeClient
+{
+    private readonly IHttpClientFactory _http;
+    private readonly IConfiguration _cfg;
+    private readonly ILogger<WaBridgeClient> _log;
+
+    public WaBridgeClient(IHttpClientFactory http, IConfiguration cfg, ILogger<WaBridgeClient> log)
+    { _http = http; _cfg = cfg; _log = log; }
+
+    public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) =>
+        PostAsync($"sessions/{accountId}/connect", ct);
+
+    public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) =>
+        PostAsync($"sessions/{accountId}/disconnect?wipe={(wipe ? "true" : "false")}", ct);
+
+    private async Task<bool> PostAsync(string path, CancellationToken ct)
+    {
+        var baseUrl = (_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001").TrimEnd('/');
+        var key = _cfg["Bridge:Key"] ?? "dev-bridge-key";
+        try
+        {
+            var client = _http.CreateClient("bridge");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/{path}")
+            {
+                Content = JsonContent.Create(new { })
+            };
+            req.Headers.Add("X-Bridge-Key", key);
+            var resp = await client.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode)
+                _log.LogWarning("Bridge {Path} returned {Status}", path, (int)resp.StatusCode);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Bridge unreachable for {Path}", path);
+            return false;
+        }
+    }
+}
+
 public class WhatsAppChannelFactory : IWhatsAppChannelFactory
 {
     private readonly IEnumerable<IWhatsAppChannel> _channels;

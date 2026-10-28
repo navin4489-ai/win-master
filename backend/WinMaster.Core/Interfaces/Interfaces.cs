@@ -40,6 +40,17 @@ public interface IWhatsAppChannelFactory
     IWhatsAppChannel For(WinMaster.Core.EngineType engine);
 }
 
+/// <summary>Controls Baileys sessions on the out-of-process bridge (connect/disconnect).</summary>
+public interface IWaBridgeClient
+{
+    /// <summary>Asks the bridge to start (or reconnect) a session. The QR arrives
+    /// asynchronously via the bridge callback. Returns false when the bridge is unreachable.</summary>
+    Task<bool> ConnectAsync(int accountId, CancellationToken ct = default);
+
+    /// <summary>Stops a session. <paramref name="wipe"/> unlinks the device and clears stored credentials.</summary>
+    Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default);
+}
+
 public interface IPushService
 {
     Task SendAsync(int userId, string title, string body, CancellationToken ct = default);

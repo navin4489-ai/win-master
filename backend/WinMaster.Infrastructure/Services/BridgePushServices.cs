@@ -18,10 +18,10 @@ public class BridgeService
         switch (ev.Type)
         {
             case "qr":
-                await WithAccount(ev.AccountId, a => { a.Status = WaAccountStatus.QrReady; a.QrData = Str(ev.Payload, "qrData"); a.QrExpiresAt = DateTime.UtcNow.AddSeconds(60); });
+                await WithAccount(ev.AccountId, a => { a.Status = WaAccountStatus.QrReady; a.QrData = Str(ev.Payload, "qrData"); a.QrPngBase64 = Str(ev.Payload, "qrPngBase64"); a.QrExpiresAt = DateTime.UtcNow.AddSeconds(60); });
                 break;
             case "connected":
-                await WithAccount(ev.AccountId, a => { a.Status = WaAccountStatus.Connected; a.PhoneNumber = Str(ev.Payload, "phoneNumber") ?? a.PhoneNumber; a.LastSeenAt = DateTime.UtcNow; a.QrData = null; });
+                await WithAccount(ev.AccountId, a => { a.Status = WaAccountStatus.Connected; a.PhoneNumber = Str(ev.Payload, "phoneNumber") ?? a.PhoneNumber; a.LastSeenAt = DateTime.UtcNow; a.QrData = null; a.QrPngBase64 = null; });
                 break;
             case "disconnected":
                 await WithAccount(ev.AccountId, a => a.Status = WaAccountStatus.Disconnected);

@@ -28,3 +28,9 @@ services/wa-bridge/sessions/
 *.log
 .vs/
 .vscode/
+
+mobile/build/
+mobile/.dart_tool/
+mobile/web/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
