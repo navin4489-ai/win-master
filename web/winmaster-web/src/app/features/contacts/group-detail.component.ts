@@ -14,7 +14,10 @@ import { Contact } from '../../core/models';
   <div class="page-head" style="margin-top:.6rem">
     <h1>Group contacts</h1>
     <div class="row-actions">
-      <label class="btn btn-ghost" style="cursor:pointer">Import CSV/XLSX<input type="file" hidden accept=".csv,.xlsx" (change)="onFile($event)" /></label>
+      <label class="btn btn-ghost" style="cursor:pointer" [class.disabled]="importing()">
+        @if (importing()) { <span class="spinner"></span> Importing… } @else { Import CSV/XLSX }
+        <input type="file" hidden accept=".csv,.xlsx" [disabled]="importing()" (change)="onFile($event)" />
+      </label>
       <button class="btn btn-ghost" (click)="validateVisible()">Validate numbers</button>
     </div>
   </div>
@@ -52,7 +55,14 @@ import { Contact } from '../../core/models';
       </div>
     </div>
   </div>
-  `
+  `,
+  styles: [`
+    .spinner { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
+      border:2px solid rgba(255,255,255,.35); border-top-color:currentColor; border-radius:50%;
+      animation:spin .6s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .disabled { opacity:.6; pointer-events:none; }
+  `]
 })
 export class GroupDetailComponent implements OnInit {
   private api = inject(ApiService);
@@ -60,6 +70,7 @@ export class GroupDetailComponent implements OnInit {
   private toast = inject(ToastService);
   items = signal<Contact[]>([]);
   loading = signal(true);
+  importing = signal(false);
   page = signal(1);
   total = signal(0);
   pageSize = 50;
@@ -77,10 +88,12 @@ export class GroupDetailComponent implements OnInit {
   go(d: number) { this.page.update(p => Math.max(1, p + d)); this.load(); }
   del(c: Contact) { this.api.deleteContact(c.id).subscribe(() => { this.toast.success('Deleted'); this.load(); }); }
   onFile(e: Event) {
-    const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0]; if (!file) return;
+    this.importing.set(true);
     this.api.importContacts(this.id, file).subscribe({
-      next: r => { this.toast.success(`Imported ${r.imported}, ${r.duplicates} dupes, ${r.invalid} invalid`); this.load(); },
-      error: ex => this.toast.error(ex?.error?.detail || 'Import failed')
+      next: r => { this.importing.set(false); input.value = ''; this.toast.success(`Imported ${r.imported}, ${r.duplicates} dupes, ${r.invalid} invalid`); this.load(); },
+      error: ex => { this.importing.set(false); input.value = ''; this.toast.error(ex?.error?.detail || 'Import failed'); }
     });
   }
   validateVisible() {
