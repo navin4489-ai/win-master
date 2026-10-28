@@ -5,7 +5,8 @@
 **/.angular/
 **/.dart_tool/
 mobile/
-services/
+services/wa-bridge/sessions/
+services/wa-bridge/.test-sessions/
 docs/requirements/
 *.db
 *.md

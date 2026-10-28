@@ -8,8 +8,9 @@ function normalizeUrl(value) {
 }
 
 export const config = {
-  // Port the bridge HTTP server listens on. Render injects PORT.
-  port: parseInt(process.env.PORT || process.env.BRIDGE_PORT || "3001", 10),
+  // Port the bridge HTTP server listens on. Prefer BRIDGE_PORT so a platform's
+  // injected PORT (meant for the API) never hijacks the bridge when co-hosted.
+  port: parseInt(process.env.BRIDGE_PORT || process.env.PORT || "3001", 10),
 
   // Base URL of the .NET API that receives callbacks (qr/connected/message/...).
   // In Render this is the internal URL of the web service. Render's fromService

@@ -1,10 +1,10 @@
 # Render Blueprint — Win Master
-# Free-tier deploy: one Docker web service (ASP.NET Core API serving the Angular SPA) + managed PostgreSQL.
+# Single free Docker web service: ASP.NET Core API (serves the Angular SPA) with
+# the Node/Baileys WhatsApp bridge co-hosted in the same container, plus managed
+# PostgreSQL. The API reaches the bridge over localhost (set in the Dockerfile).
 #
-# The Node/Baileys WhatsApp bridge (services/wa-bridge) is OPTIONAL and needs a paid
-# plan + persistent disk, so it is left out of the free blueprint. To enable it, add the
-# commented "win-master-bridge" service at the bottom and set Bridge__BaseUrl on the API.
-# Until then the API runs fully and simulates WhatsApp sends when no bridge is reachable.
+# Note (free tier): the service sleeps after inactivity and has no persistent
+# disk, so WhatsApp sessions reset on sleep/redeploy and must be re-scanned.
 services:
   - type: web
     name: win-master
@@ -30,8 +30,12 @@ services:
         generateValue: true
       - key: License__SigningSecret
         generateValue: true
+      # Shared secret between the API and the co-hosted bridge.
       - key: Bridge__Key
         generateValue: true
+      # The co-hosted bridge listens on localhost:3001 (see Dockerfile).
+      - key: Bridge__BaseUrl
+        value: http://localhost:3001
       - key: Meta__VerifyToken
         generateValue: true
 
@@ -40,34 +44,3 @@ databases:
     databaseName: winmaster
     plan: free
     postgresMajorVersion: "17"
-
-# ---------------------------------------------------------------------------
-# OPTIONAL — Baileys WhatsApp bridge (requires a paid plan + disk). To enable:
-#   1. Uncomment the service below.
-#   2. Add to the win-master web service envVars:
-#        - key: Bridge__BaseUrl
-#          fromService: { name: win-master-bridge, type: pserv, property: hostport }
-#
-#   - type: pserv
-#     name: win-master-bridge
-#     runtime: docker
-#     region: oregon
-#     plan: starter
-#     dockerfilePath: ./services/wa-bridge/Dockerfile
-#     dockerContext: ./services/wa-bridge
-#     autoDeployTrigger: commit
-#     disk:
-#       name: wa-sessions
-#       mountPath: /data/sessions
-#       sizeGB: 1
-#     envVars:
-#       - key: PORT
-#         value: "3001"
-#       - key: SESSIONS_DIR
-#         value: /data/sessions
-#       - key: NODE_ENV
-#         value: production
-#       - key: BRIDGE_KEY
-#         fromService: { name: win-master, type: web, envVarKey: Bridge__Key }
-#       - key: API_BASE_URL
-#         fromService: { name: win-master, type: web, property: hostport }
