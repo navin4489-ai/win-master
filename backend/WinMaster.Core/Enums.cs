@@ -26,7 +26,7 @@ public enum RecipientStatus { Pending = 0, Sending = 1, Sent = 2, Delivered = 3,
 
 public enum MatchType { Exact = 0, Wildcard = 1, Regex = 2 }
 
-public enum AiProvider { OpenAI = 0, Anthropic = 1 }
+public enum AiProvider { OpenAI = 0, Anthropic = 1, Groq = 2, OpenRouter = 3, Gemini = 4, Local = 5 }
 
 public enum MessageDirection { In = 0, Out = 1 }
 

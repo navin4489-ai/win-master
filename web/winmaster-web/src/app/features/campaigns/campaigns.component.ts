@@ -117,7 +117,13 @@ export class CampaignsComponent implements OnInit {
     this.showCreate.set(true);
   }
   create() {
-    const b = { ...this.form, groupId: +this.form.groupId, templateId: this.form.templateId ? +this.form.templateId : null };
+    const b = {
+      ...this.form,
+      groupId: +this.form.groupId,
+      templateId: this.form.templateId ? +this.form.templateId : null,
+      // Empty datetime-local sends ''; the API needs null for the nullable DateTime.
+      scheduledAt: this.form.scheduledAt ? this.form.scheduledAt : null,
+    };
     this.api.createCampaign(b).subscribe({
       next: () => { this.toast.success('Campaign created'); this.showCreate.set(false); this.load(); },
       error: e => this.toast.error(e?.error?.detail || 'Failed to create')

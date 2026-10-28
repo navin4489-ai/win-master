@@ -25,8 +25,11 @@ public static class DependencyInjection
 
         services.AddDataProtection();
         services.AddHttpClient("bridge");
+        services.AddHttpClient("ai");
         services.AddHttpClient("meta", c => c.BaseAddress = new Uri("https://graph.facebook.com/v20.0/"))
             .AddStandardResilienceHandler();
+
+        services.AddSingleton<WinMaster.Core.Interfaces.IAiClient, AiClient>();
 
         services.AddSingleton<ILicenseSigner>(sp =>
             new LicenseSigner(cfg["License:SigningSecret"] ?? "winmaster-license-signing-secret-change-me"));

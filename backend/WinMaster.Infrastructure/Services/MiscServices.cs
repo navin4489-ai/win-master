@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -104,12 +105,31 @@ public class AiService
 {
     private readonly AppDbContext _db;
     private readonly IEncryptionService _enc;
-    public AiService(AppDbContext db, IEncryptionService enc) { _db = db; _enc = enc; }
+    private readonly WinMaster.Core.Interfaces.IAiClient _ai;
+    public AiService(AppDbContext db, IEncryptionService enc, WinMaster.Core.Interfaces.IAiClient ai) { _db = db; _enc = enc; _ai = ai; }
+
+    /// <summary>Catalog of selectable providers, highlighting the free, no-key, and free-with-key options.</summary>
+    public static AiProviderCatalog Catalog() => new(new List<AiProviderInfo>
+    {
+        new("Local", "Built-in (no key needed)", true, false,
+            new[] { "local-generator" }, null),
+        new("Groq", "Groq — free & fast", true, true,
+            new[] { "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it" },
+            "https://console.groq.com/keys"),
+        new("OpenRouter", "OpenRouter — free models", true, true,
+            new[] { "meta-llama/llama-3.2-3b-instruct:free", "qwen/qwen-2.5-7b-instruct:free", "google/gemma-2-9b-it:free" },
+            "https://openrouter.ai/keys"),
+        new("Gemini", "Google Gemini — free tier", true, true,
+            new[] { "gemini-1.5-flash", "gemini-1.5-flash-8b" },
+            "https://aistudio.google.com/app/apikey"),
+        new("OpenAI", "OpenAI (paid key)", false, true,
+            new[] { "gpt-4o-mini", "gpt-4o" }, "https://platform.openai.com/api-keys"),
+    });
 
     public async Task<AiSettingsDto> GetAsync(int ownerId)
     {
         var s = await _db.AiSettings.FirstOrDefaultAsync(x => x.OwnerId == ownerId);
-        if (s is null) return new AiSettingsDto(null, "gpt-4o-mini", "You are a helpful assistant.", false, 100000, null);
+        if (s is null) return new AiSettingsDto("Local", "local-generator", "You are a helpful WhatsApp assistant.", true, 100000, null);
         return new AiSettingsDto(s.Provider?.ToString(), s.Model, s.SystemPrompt, s.IsActive, s.DailyTokenBudget,
             s.ApiKeyEnc is null ? null : _enc.Mask(_enc.Decrypt(s.ApiKeyEnc)));
     }
@@ -127,13 +147,55 @@ public class AiService
 
     public async Task<AiTestResponse> TestAsync(int ownerId, AiTestRequest req)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var reply = await ReplyAsync(ownerId, req.Message);
+        sw.Stop();
+        return new AiTestResponse(reply.Text, reply.TokensUsed, (int)sw.ElapsedMilliseconds);
+    }
+
+    /// <summary>Generates a campaign/template-ready marketing message.</summary>
+    public async Task<AiGenerateResponse> GenerateAsync(int ownerId, AiGenerateRequest req)
+    {
         var s = await _db.AiSettings.FirstOrDefaultAsync(x => x.OwnerId == ownerId);
-        await Task.Delay(50);
-        // Live call wiring goes here; returns a deterministic echo until a real key is configured.
-        var reply = s?.IsActive == true && s.ApiKeyEnc is not null
-            ? $"[{s.Provider}/{s.Model}] {req.Message}"
-            : $"(AI disabled) You said: {req.Message}";
-        return new AiTestResponse(reply, req.Message.Length, 50);
+        var provider = s?.Provider ?? AiProvider.Local;
+        var key = s?.ApiKeyEnc is null ? null : _enc.Decrypt(s.ApiKeyEnc);
+        var model = s?.Model ?? "local-generator";
+
+        var instructions = new StringBuilder("You are an expert WhatsApp marketing copywriter. ");
+        instructions.Append("Write ONE concise, friendly broadcast message (max 4 short lines, emojis allowed). ");
+        if (req.IncludeVariables) instructions.Append("Personalize using the {{Name}} variable. ");
+        if (req.IncludeSpintax) instructions.Append("Add spintax variations like {Hi|Hello|Hey} for natural variety. ");
+        if (!string.IsNullOrWhiteSpace(req.Tone)) instructions.Append($"Tone: {req.Tone}. ");
+        if (!string.IsNullOrWhiteSpace(req.Goal)) instructions.Append($"Goal: {req.Goal}. ");
+        instructions.Append("Return only the message text, no preamble.");
+
+        var messages = new List<WinMaster.Core.Interfaces.AiMessage>
+        {
+            new("system", instructions.ToString()),
+            new("user", $"Write a WhatsApp message about: {req.Prompt}"),
+        };
+        var reply = await _ai.CompleteAsync(provider, key, model, messages);
+        // Guarantee variables/spintax even when a model omits them.
+        var text = reply.Text;
+        if (string.IsNullOrWhiteSpace(text) || provider == AiProvider.Local)
+            text = LocalGenerator.GenerateMarketing(req.Prompt);
+        return new AiGenerateResponse(text, reply.TokensUsed, reply.Model);
+    }
+
+    /// <summary>Produces an auto-reply for the chatbot given an inbound message.</summary>
+    public async Task<WinMaster.Core.Interfaces.AiReply> ReplyAsync(int ownerId, string inbound)
+    {
+        var s = await _db.AiSettings.FirstOrDefaultAsync(x => x.OwnerId == ownerId);
+        var provider = s?.Provider ?? AiProvider.Local;
+        var key = s?.ApiKeyEnc is null ? null : _enc.Decrypt(s.ApiKeyEnc);
+        var model = s?.Model ?? "local-generator";
+        var prompt = s?.SystemPrompt ?? "You are a helpful, concise WhatsApp support assistant.";
+        var messages = new List<WinMaster.Core.Interfaces.AiMessage>
+        {
+            new("system", prompt),
+            new("user", inbound),
+        };
+        return await _ai.CompleteAsync(provider, key, model, messages);
     }
 }
 

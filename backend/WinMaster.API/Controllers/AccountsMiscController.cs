@@ -88,6 +88,8 @@ public class AiSettingsController : ApiControllerBase
     private readonly AiService _svc;
     public AiSettingsController(AiService svc) => _svc = svc;
     [HttpGet] public async Task<ActionResult<AiSettingsDto>> Get() => Ok(await _svc.GetAsync(UserId));
+    [HttpGet("providers")] public ActionResult<AiProviderCatalog> Providers() => Ok(AiService.Catalog());
     [HttpPut] public async Task<ActionResult<AiSettingsDto>> Update(UpdateAiSettingsRequest req) => Ok(await _svc.UpdateAsync(UserId, req));
     [HttpPost("test")] public async Task<ActionResult<AiTestResponse>> Test(AiTestRequest req) => Ok(await _svc.TestAsync(UserId, req));
+    [HttpPost("generate")] public async Task<ActionResult<AiGenerateResponse>> Generate(AiGenerateRequest req) => Ok(await _svc.GenerateAsync(UserId, req));
 }

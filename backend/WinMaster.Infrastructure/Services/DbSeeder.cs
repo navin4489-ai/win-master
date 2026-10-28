@@ -42,7 +42,7 @@ public static class DbSeeder
             new AccountAntiBanSettings { AccountId = acc1.Id, MinDelaySec = 6, MaxDelaySec = 14, BatchSize = 40, CooldownMinutes = 5, DailyCap = 800 },
             new AccountAntiBanSettings { AccountId = acc2.Id, MinDelaySec = 3, MaxDelaySec = 8, BatchSize = 100, CooldownMinutes = 3, DailyCap = 4000 });
 
-        db.AiSettings.Add(new AiSettings { OwnerId = user.Id, Provider = AiProvider.OpenAI, Model = "gpt-4o-mini", IsActive = false, SystemPrompt = "You are a friendly sales assistant for Win Master." });
+        db.AiSettings.Add(new AiSettings { OwnerId = user.Id, Provider = AiProvider.Local, Model = "local-generator", IsActive = true, SystemPrompt = "You are a friendly sales assistant for Win Master." });
 
         // Templates (2)
         var tpl1 = new Template { OwnerId = user.Id, Name = "Welcome Offer", Body = "{Hi|Hello|Hey} {{Name}}! Your invoice {{InvoiceNo}} is ready. Reply to continue.", Category = "Promo" };

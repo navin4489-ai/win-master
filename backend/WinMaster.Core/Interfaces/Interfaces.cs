@@ -55,3 +55,15 @@ public interface IPushService
 {
     Task SendAsync(int userId, string title, string body, CancellationToken ct = default);
 }
+
+/// <summary>A chat message in a provider-agnostic conversation.</summary>
+public record AiMessage(string Role, string Content);
+
+public record AiReply(string Text, int TokensUsed, string Model);
+
+/// <summary>Talks to a chat-completion provider (OpenAI-compatible, Gemini, or a keyless local generator).</summary>
+public interface IAiClient
+{
+    Task<AiReply> CompleteAsync(WinMaster.Core.AiProvider provider, string? apiKey, string model,
+        IReadOnlyList<AiMessage> messages, CancellationToken ct = default);
+}
