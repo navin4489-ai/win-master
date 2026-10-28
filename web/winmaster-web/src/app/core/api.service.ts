@@ -106,6 +106,12 @@ export class ApiService {
   testAi(message: string) { return this.http.post<any>(`${this.base}/ai-settings/test`, { message }); }
   aiGenerate(b: any) { return this.http.post<any>(`${this.base}/ai-settings/generate`, b); }
 
+  // Media upload
+  uploadMedia(file: File) {
+    const form = new FormData(); form.append('file', file);
+    return this.http.post<{ url: string; fileName: string }>(`${this.base}/media/upload`, form);
+  }
+
   // Inbox
   threads(q: any) { return this.http.get<M.Paged<M.InboxThread>>(`${this.base}/inbox/threads`, { params: this.params(q) }); }
   messages(threadId: number, q: any) { return this.http.get<M.Paged<M.InboxMessage>>(`${this.base}/inbox/threads/${threadId}/messages`, { params: this.params(q) }); }

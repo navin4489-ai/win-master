@@ -28,21 +28,71 @@ import { Template } from '../../core/models';
         <div class="field"><label>Name</label><input class="input" [(ngModel)]="form.name" /></div>
         <div class="field"><label>Category</label><input class="input" [(ngModel)]="form.category" /></div>
         <div class="field"><label>Body (supports {{ '{{Name}}' }} and {{ '{a|b}' }} spintax)</label><textarea class="input" rows="4" [(ngModel)]="form.body"></textarea></div>
-        <div class="flex gap"><div class="field" style="flex:1"><label>Media type</label><select class="input" [(ngModel)]="form.mediaType"><option>None</option><option>Image</option><option>Document</option><option>Video</option><option>Audio</option></select></div><div class="field" style="flex:2"><label>Media URL</label><input class="input" [(ngModel)]="form.mediaUrl" /></div></div>
+        <div class="flex gap">
+          <div class="field" style="flex:1"><label>Media type</label><select class="input" [(ngModel)]="form.mediaType"><option>None</option><option>Image</option><option>Document</option><option>Video</option><option>Audio</option></select></div>
+          <div class="field" style="flex:2"><label>Attachment</label>
+            @if (form.mediaType && form.mediaType !== 'None') {
+              <div class="flex gap-sm" style="align-items:center">
+                <label class="btn btn-ghost btn-sm" style="cursor:pointer;white-space:nowrap" [class.disabled]="uploading()">
+                  @if (uploading()) { <span class="spinner"></span> Uploading… } @else { Browse… }
+                  <input type="file" hidden [accept]="accept()" [disabled]="uploading()" (change)="onFile($event)" />
+                </label>
+                @if (form.mediaUrl) {
+                  <span class="muted" style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" [title]="form.mediaUrl">{{ fileLabel() }}</span>
+                  <button class="btn btn-ghost btn-sm" (click)="clearFile()" title="Remove">✕</button>
+                } @else {
+                  <span class="muted" style="font-size:.8rem">No file chosen</span>
+                }
+              </div>
+            } @else {
+              <input class="input" disabled placeholder="Select a media type first" />
+            }
+          </div>
+        </div>
       </div>
       <div class="modal-foot"><button class="btn btn-ghost" (click)="show.set(false)">Cancel</button><button class="btn btn-primary" (click)="save()">Save</button></div>
     </div></div>
   }
-  `
+  `,
+  styles: [`
+    .spinner { display:inline-block; width:13px; height:13px; margin-right:5px; vertical-align:-2px;
+      border:2px solid rgba(255,255,255,.35); border-top-color:currentColor; border-radius:50%;
+      animation:spin .6s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .disabled { opacity:.6; pointer-events:none; }
+  `]
 })
 export class TemplatesComponent implements OnInit {
   private api = inject(ApiService); private toast = inject(ToastService);
   items = signal<Template[]>([]); loading = signal(true); show = signal(false);
+  uploading = signal(false);
   form: any = {};
   ngOnInit() { this.load(); }
   load() { this.loading.set(true); this.api.templates().subscribe({ next: r => { this.items.set(r); this.loading.set(false); }, error: () => { this.loading.set(false); this.toast.error('API unreachable'); } }); }
   open() { this.form = { name: '', category: 'General', body: '', mediaType: 'None', mediaUrl: '' }; this.show.set(true); }
   edit(t: Template) { this.form = { ...t }; this.show.set(true); }
+
+  accept() {
+    switch (this.form.mediaType) {
+      case 'Image': return 'image/*';
+      case 'Video': return 'video/*';
+      case 'Audio': return 'audio/*';
+      case 'Document': return '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+      default: return '*/*';
+    }
+  }
+  fileLabel() { const u = this.form.mediaUrl || ''; return u.split('/').pop() || u; }
+  onFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0]; if (!file) return;
+    this.uploading.set(true);
+    this.api.uploadMedia(file).subscribe({
+      next: r => { this.form.mediaUrl = r.url; this.uploading.set(false); input.value = ''; this.toast.success('File uploaded'); },
+      error: ex => { this.uploading.set(false); input.value = ''; this.toast.error(ex?.error?.detail || 'Upload failed'); }
+    });
+  }
+  clearFile() { this.form.mediaUrl = ''; }
+
   save() {
     const op = this.form.id ? this.api.updateTemplate(this.form.id, this.form) : this.api.createTemplate(this.form);
     op.subscribe({ next: () => { this.toast.success('Saved'); this.show.set(false); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') });
