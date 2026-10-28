@@ -61,14 +61,26 @@ interface ProviderInfo { id: string; name: string; free: boolean; needsKey: bool
           <div class="field" style="flex:1"><label>Tone</label><select class="input" [(ngModel)]="genTone"><option>Friendly</option><option>Professional</option><option>Urgent</option><option>Playful</option></select></div>
           <div class="field" style="flex:1"><label>Goal</label><select class="input" [(ngModel)]="genGoal"><option>Drive sales</option><option>Announce</option><option>Re-engage</option><option>Collect replies</option></select></div>
         </div>
-        <div class="flex gap" style="margin-bottom:.8rem">
-          <label class="flex gap-sm" style="align-items:center"><input type="checkbox" [(ngModel)]="genSpintax" /> Spintax</label>
-          <label class="flex gap-sm" style="align-items:center"><input type="checkbox" [(ngModel)]="genVars" /> {{ '{{Name}}' }} variable</label>
-        </div>
+        <details style="margin-bottom:.8rem">
+          <summary class="muted" style="cursor:pointer;font-size:.82rem">Advanced options</summary>
+          <div class="flex gap" style="margin-top:.6rem">
+            <label class="flex gap-sm" style="align-items:center"><input type="checkbox" [(ngModel)]="genSpintax" /> Spintax</label>
+            <label class="flex gap-sm" style="align-items:center"><input type="checkbox" [(ngModel)]="genVars" /> {{ '{{Name}}' }} variable</label>
+          </div>
+        </details>
         <button class="btn btn-primary" (click)="generate()" [disabled]="busy()">{{ busy() ? 'Generating…' : '✨ Generate message' }}</button>
         @if (generated()) {
-          <div class="card card-pad" style="margin-top:1rem;background:var(--panel-2);white-space:pre-wrap">{{ generated() }}</div>
-          <button class="btn btn-ghost btn-sm" style="margin-top:.6rem" (click)="copy()">Copy</button>
+          <div class="field" style="margin-top:1rem"><label>Generated message (editable)</label>
+            <textarea class="input" rows="5" [(ngModel)]="generatedText" style="white-space:pre-wrap"></textarea>
+          </div>
+          <div class="field">
+            <label>Want to change anything?</label>
+            <div class="flex gap">
+              <input class="input" [(ngModel)]="refinePrompt" placeholder="e.g. make it shorter, add a discount code, more urgent" (keyup.enter)="refine()" style="flex:1" />
+              <button class="btn btn-ghost" (click)="refine()" [disabled]="busy()">{{ busy() ? '…' : 'Apply' }}</button>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" (click)="copy()">Copy</button>
         }
       </div>
     </div>
@@ -83,8 +95,10 @@ export class AiComponent implements OnInit {
   form: any = { provider: 'Local', model: 'local-generator', apiKey: '', systemPrompt: '', isActive: true };
   testMsg = 'Hi, what are your prices?';
   reply = signal('');
-  genPrompt = ''; genTone = 'Friendly'; genGoal = 'Drive sales'; genSpintax = true; genVars = true;
+  genPrompt = ''; genTone = 'Friendly'; genGoal = 'Drive sales'; genSpintax = false; genVars = false;
   generated = signal('');
+  generatedText = '';
+  refinePrompt = '';
   busy = signal(false);
 
   ngOnInit() {
@@ -102,7 +116,13 @@ export class AiComponent implements OnInit {
     if (!this.genPrompt.trim()) { this.toast.error('Describe what the message is about'); return; }
     this.busy.set(true);
     this.api.aiGenerate({ prompt: this.genPrompt, tone: this.genTone, goal: this.genGoal, includeSpintax: this.genSpintax, includeVariables: this.genVars })
-      .subscribe({ next: r => { this.generated.set(r.message); this.busy.set(false); }, error: e => { this.busy.set(false); this.toast.error(e?.error?.detail || 'Failed'); } });
+      .subscribe({ next: r => { this.generated.set(r.message); this.generatedText = r.message; this.refinePrompt = ''; this.busy.set(false); }, error: e => { this.busy.set(false); this.toast.error(e?.error?.detail || 'Failed'); } });
   }
-  copy() { navigator.clipboard.writeText(this.generated()); this.toast.success('Copied'); }
+  refine() {
+    if (!this.refinePrompt.trim()) { this.toast.error('Describe what to change'); return; }
+    this.busy.set(true);
+    this.api.aiGenerate({ prompt: this.genPrompt, tone: this.genTone, goal: this.genGoal, includeSpintax: this.genSpintax, includeVariables: this.genVars, refine: this.refinePrompt, previous: this.generatedText })
+      .subscribe({ next: r => { this.generated.set(r.message); this.generatedText = r.message; this.refinePrompt = ''; this.busy.set(false); }, error: e => { this.busy.set(false); this.toast.error(e?.error?.detail || 'Failed'); } });
+  }
+  copy() { navigator.clipboard.writeText(this.generatedText); this.toast.success('Copied'); }
 }

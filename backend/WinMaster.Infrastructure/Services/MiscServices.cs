@@ -162,20 +162,29 @@ public class AiService
         var model = s?.Model ?? "local-generator";
 
         var instructions = new StringBuilder("You are an expert WhatsApp marketing copywriter. ");
-        instructions.Append("Write ONE concise, friendly broadcast message (max 4 short lines, emojis allowed). ");
+        instructions.Append("Write ONE concise, clear broadcast message in plain text (max 4 short lines, emojis allowed). ");
         if (req.IncludeVariables) instructions.Append("Personalize using the {{Name}} variable. ");
         if (req.IncludeSpintax) instructions.Append("Add spintax variations like {Hi|Hello|Hey} for natural variety. ");
         if (!string.IsNullOrWhiteSpace(req.Tone)) instructions.Append($"Tone: {req.Tone}. ");
         if (!string.IsNullOrWhiteSpace(req.Goal)) instructions.Append($"Goal: {req.Goal}. ");
-        instructions.Append("Return only the message text, no preamble.");
+        instructions.Append("Return only the message text, no preamble, no quotes.");
 
         var messages = new List<WinMaster.Core.Interfaces.AiMessage>
         {
             new("system", instructions.ToString()),
-            new("user", $"Write a WhatsApp message about: {req.Prompt}"),
         };
+        if (!string.IsNullOrWhiteSpace(req.Refine) && !string.IsNullOrWhiteSpace(req.Previous))
+        {
+            // Follow-up: refine the previous message per the user's new instruction.
+            messages.Add(new("user", $"Write a WhatsApp message about: {req.Prompt}"));
+            messages.Add(new("assistant", req.Previous));
+            messages.Add(new("user", $"Revise the message above: {req.Refine}. Return only the revised message."));
+        }
+        else
+        {
+            messages.Add(new("user", $"Write a WhatsApp message about: {req.Prompt}"));
+        }
         var reply = await _ai.CompleteAsync(provider, key, model, messages);
-        // Guarantee variables/spintax even when a model omits them.
         var text = reply.Text;
         if (string.IsNullOrWhiteSpace(text) || provider == AiProvider.Local)
             text = LocalGenerator.GenerateMarketing(req.Prompt);

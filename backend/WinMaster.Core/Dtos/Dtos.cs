@@ -108,7 +108,7 @@ public record UpdateAiSettingsRequest(string? Provider, string? ApiKey, string M
     bool IsActive, int DailyTokenBudget);
 public record AiTestRequest(string Message);
 public record AiTestResponse(string Reply, int TokensUsed, int LatencyMs);
-public record AiGenerateRequest(string Prompt, string? Tone, string? Goal, bool IncludeSpintax, bool IncludeVariables);
+public record AiGenerateRequest(string Prompt, string? Tone, string? Goal, bool IncludeSpintax, bool IncludeVariables, string? Refine = null, string? Previous = null);
 public record AiGenerateResponse(string Message, int TokensUsed, string Model);
 public record AiProviderInfo(string Id, string Name, bool Free, bool NeedsKey, string[] Models, string? SignupUrl);
 public record AiProviderCatalog(List<AiProviderInfo> Providers);
