@@ -56,7 +56,7 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
           <div class="field"><label>Name</label><input class="input" [(ngModel)]="form.name" /></div>
           <div class="field"><label>Contact group</label>
             <select class="input" [(ngModel)]="form.groupId">
-              @for (g of groups(); track g.id) { <option [value]="g.id">{{ g.name }} ({{ g.totalContacts }})</option> }
+              @for (g of groups(); track g.id) { <option [ngValue]="g.id">{{ g.name }} ({{ g.totalContacts }})</option> }
             </select>
           </div>
           <div class="field"><label>Template</label>
@@ -121,9 +121,16 @@ export class CampaignsComponent implements OnInit {
     this.showCreate.set(true);
   }
   create() {
+    const name = (this.form.name || '').trim();
+    const groupId = +this.form.groupId;
+    // Validate loudly so the form never silently does nothing.
+    if (!name) { this.toast.error('Campaign name is required'); return; }
+    if (!groupId) { this.toast.error('Please select a contact group'); return; }
+    if (!this.form.templateId && !(this.form.body || '').trim()) { this.toast.error('Add a message or choose a template'); return; }
     const b = {
       ...this.form,
-      groupId: +this.form.groupId,
+      name,
+      groupId,
       templateId: this.form.templateId ? +this.form.templateId : null,
       // Empty datetime-local sends ''; the API needs null for the nullable DateTime.
       scheduledAt: this.form.scheduledAt ? this.form.scheduledAt : null,
