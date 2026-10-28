@@ -1025,6 +1025,40 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("WinMaster.Core.Entities.WaSessionState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId", "Key")
+                        .IsUnique();
+
+                    b.ToTable("WaSessionStates");
+                });
+
             modelBuilder.Entity("WinMaster.Core.Entities.WebhookEvent", b =>
                 {
                     b.Property<int>("Id")

@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using WinMaster.Core.Dtos;
+using WinMaster.Core.Entities;
 using WinMaster.Core.Interfaces;
+using WinMaster.Infrastructure.Data;
 using WinMaster.Infrastructure.Services;
 
 namespace WinMaster.API.Controllers;
@@ -83,6 +86,8 @@ public class IntegrationsController : ControllerBase
     private readonly IConfiguration _cfg;
     public IntegrationsController(BridgeService bridge, IConfiguration cfg) { _bridge = bridge; _cfg = cfg; }
 
+    private bool KeyOk(string? key) => key == (_cfg["Bridge:Key"] ?? "dev-bridge-key");
+
     [AllowAnonymous]
     [HttpPost("bridge/events")]
     public async Task<IActionResult> BridgeEvents([FromHeader(Name = "X-Bridge-Key")] string? key, BridgeEvent ev)
@@ -91,6 +96,59 @@ public class IntegrationsController : ControllerBase
         if (key != expected) return Unauthorized();
         await _bridge.HandleAsync(ev);
         return Ok(new { received = true });
+    }
+
+    // ---- Session-state persistence (DB-backed Baileys auth, bridge-key auth) ----
+
+    public record SessionStateEntry(string Key, string Value);
+
+    [AllowAnonymous]
+    [HttpGet("bridge/sessions/{accountId:int}/state")]
+    public async Task<IActionResult> GetSessionState([FromHeader(Name = "X-Bridge-Key")] string? key, int accountId,
+        [FromServices] AppDbContext db)
+    {
+        if (!KeyOk(key)) return Unauthorized();
+        var rows = await db.WaSessionStates.Where(s => s.AccountId == accountId)
+            .Select(s => new SessionStateEntry(s.Key, s.Value)).ToListAsync();
+        return Ok(rows);
+    }
+
+    /// <summary>Account ids that have persisted creds — the bridge restores these on startup.</summary>
+    [AllowAnonymous]
+    [HttpGet("bridge/sessions")]
+    public async Task<IActionResult> ListPersistedSessions([FromHeader(Name = "X-Bridge-Key")] string? key,
+        [FromServices] AppDbContext db)
+    {
+        if (!KeyOk(key)) return Unauthorized();
+        var ids = await db.WaSessionStates.Where(s => s.Key == "creds")
+            .Select(s => s.AccountId).Distinct().ToListAsync();
+        return Ok(ids);
+    }
+
+    [AllowAnonymous]
+    [HttpPut("bridge/sessions/{accountId:int}/state")]
+    public async Task<IActionResult> PutSessionState([FromHeader(Name = "X-Bridge-Key")] string? key, int accountId,
+        [FromBody] SessionStateEntry entry, [FromServices] AppDbContext db)
+    {
+        if (!KeyOk(key)) return Unauthorized();
+        var row = await db.WaSessionStates.FirstOrDefaultAsync(s => s.AccountId == accountId && s.Key == entry.Key);
+        if (row is null) db.WaSessionStates.Add(new WaSessionState { AccountId = accountId, Key = entry.Key, Value = entry.Value });
+        else row.Value = entry.Value;
+        await db.SaveChangesAsync();
+        return Ok(new { saved = true });
+    }
+
+    [AllowAnonymous]
+    [HttpDelete("bridge/sessions/{accountId:int}/state")]
+    public async Task<IActionResult> ClearSessionState([FromHeader(Name = "X-Bridge-Key")] string? key, int accountId,
+        [FromServices] AppDbContext db, [FromQuery] string? stateKey)
+    {
+        if (!KeyOk(key)) return Unauthorized();
+        var q = db.WaSessionStates.Where(s => s.AccountId == accountId);
+        if (!string.IsNullOrEmpty(stateKey)) q = q.Where(s => s.Key == stateKey);
+        db.WaSessionStates.RemoveRange(q);
+        await db.SaveChangesAsync();
+        return Ok(new { cleared = true });
     }
 
     [AllowAnonymous]

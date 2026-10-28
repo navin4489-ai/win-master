@@ -1,5 +1,3 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { pushEvent } from "./callback.js";
@@ -20,10 +18,6 @@ async function deps() {
   return { b: _baileys, QRCode: _qrcode };
 }
 
-function sessionDir(accountId) {
-  return join(config.sessionsDir, String(accountId));
-}
-
 export function normalizeJid(phone) {
   const digits = String(phone).replace(/[^0-9]/g, "");
   return `${digits}@s.whatsapp.net`;
@@ -38,11 +32,12 @@ export async function startSession(accountId) {
   }
 
   const { b, QRCode } = await deps();
-  const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason, Browsers } = b;
+  const { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, Browsers } = b;
   const { Boom } = await import("@hapi/boom");
+  const { useDbAuthState, clearDbAuthState } = await import("./db-auth-state.js");
 
-  mkdirSync(sessionDir(accountId), { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(sessionDir(accountId));
+  // Auth state is persisted in the DB (via the API) so sessions survive restarts.
+  const { state, saveCreds } = await useDbAuthState(accountId);
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -89,7 +84,7 @@ export async function startSession(accountId) {
       const loggedOut = code === DisconnectReason.loggedOut;
       sessions.delete(accountId);
       if (loggedOut) {
-        rmSync(sessionDir(accountId), { recursive: true, force: true });
+        await clearDbAuthState(accountId);
         await pushEvent("disconnected", accountId, { reason: "logged_out" });
         logger.warn({ accountId }, "logged out, credentials cleared");
       } else {
@@ -149,7 +144,10 @@ export async function stopSession(accountId, { wipe = false } = {}) {
     } catch { /* ignore */ }
   }
   sessions.delete(accountId);
-  if (wipe) rmSync(sessionDir(accountId), { recursive: true, force: true });
+  if (wipe) {
+    const { clearDbAuthState } = await import("./db-auth-state.js");
+    await clearDbAuthState(accountId);
+  }
 }
 
 export function sessionStatus(accountId) {
@@ -158,6 +156,24 @@ export function sessionStatus(accountId) {
 
 export function sessionCount() {
   return sessions.size;
+}
+
+// On startup, restore every account that has persisted creds in the DB so
+// linked sessions survive restarts without a re-scan.
+export async function restoreSessions() {
+  try {
+    const res = await fetch(`${config.apiBaseUrl}/api/bridge/sessions`, {
+      headers: { "X-Bridge-Key": config.bridgeKey },
+    });
+    if (!res.ok) { logger.warn({ status: res.status }, "could not list persisted sessions"); return; }
+    const ids = await res.json();
+    logger.info({ count: ids.length }, "restoring persisted sessions");
+    for (const id of ids) {
+      startSession(id).catch((e) => logger.warn({ id, err: e.message }, "restore failed"));
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, "restoreSessions failed");
+  }
 }
 
 // Sends a text or media message. Returns the WhatsApp message id.

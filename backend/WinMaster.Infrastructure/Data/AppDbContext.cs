@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<Activation> Activations => Set<Activation>();
     public DbSet<Proxy> Proxies => Set<Proxy>();
     public DbSet<WhatsAppAccount> WhatsAppAccounts => Set<WhatsAppAccount>();
+    public DbSet<WaSessionState> WaSessionStates => Set<WaSessionState>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<Tag> Tags => Set<Tag>();
@@ -57,6 +58,7 @@ public class AppDbContext : DbContext
 
         b.Entity<CampaignCheckpoint>().HasIndex(x => x.CampaignId).IsUnique();
         b.Entity<AccountAntiBanSettings>().HasIndex(x => x.AccountId).IsUnique();
+        b.Entity<WaSessionState>().HasIndex(x => new { x.AccountId, x.Key }).IsUnique();
 
         b.Entity<InboxMessage>().HasOne(x => x.Thread).WithMany(x => x.Messages)
             .HasForeignKey(x => x.ThreadId).OnDelete(DeleteBehavior.Cascade);

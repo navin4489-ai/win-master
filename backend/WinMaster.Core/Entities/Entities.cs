@@ -112,6 +112,16 @@ public class WhatsAppAccount : BaseEntity
     public DateTime? QrExpiresAt { get; set; }
 }
 
+/// <summary>Persisted Baileys auth-state entry (one row per auth key) so WhatsApp
+/// sessions survive bridge restarts even without a disk (free-tier friendly).</summary>
+public class WaSessionState : BaseEntity
+{
+    public int AccountId { get; set; }
+    [MaxLength(200)] public string Key { get; set; } = "";
+    /// <summary>Base64 of the serialized auth value.</summary>
+    public string Value { get; set; } = "";
+}
+
 public class ContactGroup : BaseEntity
 {
     public int OwnerId { get; set; }

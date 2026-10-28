@@ -93,9 +93,8 @@ app.listen(config.port, async () => {
     { port: config.port, apiBaseUrl: config.apiBaseUrl },
     "wa-bridge listening"
   );
-  // Tell the API we started with no live sessions so it can un-stick any
-  // accounts still marked Connected from before a restart (free tier has no
-  // session persistence). AccountId 0 is a sentinel: "applies to all".
-  const { pushEvent } = await import("./callback.js");
-  await pushEvent("bridge_restarted", 0, {});
+  // Restore any persisted sessions from the DB so linked accounts keep working
+  // across restarts without a re-scan. Give the API a moment to be ready.
+  const { restoreSessions } = await import("./session-manager.js");
+  setTimeout(() => restoreSessions(), 3000);
 });
