@@ -17,7 +17,12 @@ if (!string.IsNullOrWhiteSpace(port))
 builder.Services.AddWinMasterInfrastructure(builder.Configuration);
 
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        // Tolerate empty-string dates (e.g. an unset datetime-local field) by treating them as null.
+        o.JsonSerializerOptions.Converters.Add(new WinMaster.API.Json.NullableDateTimeConverter());
+    });
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
