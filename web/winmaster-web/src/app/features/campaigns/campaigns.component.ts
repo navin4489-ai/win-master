@@ -132,8 +132,9 @@ export class CampaignsComponent implements OnInit {
       name,
       groupId,
       templateId: this.form.templateId ? +this.form.templateId : null,
-      // Empty datetime-local sends ''; the API needs null for the nullable DateTime.
-      scheduledAt: this.form.scheduledAt ? this.form.scheduledAt : null,
+      // datetime-local is naive local time; convert to a real UTC ISO string so
+      // the server (which schedules in UTC) fires at the user's intended moment.
+      scheduledAt: this.form.scheduledAt ? new Date(this.form.scheduledAt).toISOString() : null,
     };
     this.api.createCampaign(b).subscribe({
       next: () => { this.toast.success('Campaign created'); this.showCreate.set(false); this.load(); },

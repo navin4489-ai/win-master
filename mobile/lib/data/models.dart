@@ -124,3 +124,92 @@ class WaAccount {
         j['id'], j['dailyLimit'] ?? 0, j['sentToday'] ?? 0, j['engineType'] ?? '', j['displayName'] ?? '',
         j['status'] ?? '', j['warmupState'] ?? '', j['phoneNumber']);
 }
+
+class Contact {
+  final int id;
+  final String phone;
+  final String? name;
+  final bool? waRegistered;
+  final List<String> tags;
+  Contact(this.id, this.phone, this.name, this.waRegistered, this.tags);
+  factory Contact.fromJson(Map<String, dynamic> j) => Contact(
+        j['id'], j['phone'] ?? '', j['name'], j['waRegistered'],
+        ((j['tags'] ?? []) as List).map((e) => e.toString()).toList());
+}
+
+class Template {
+  final int id;
+  final String name, body, mediaType, category;
+  Template(this.id, this.name, this.body, this.mediaType, this.category);
+  factory Template.fromJson(Map<String, dynamic> j) =>
+      Template(j['id'], j['name'] ?? '', j['body'] ?? '', j['mediaType'] ?? 'None', j['category'] ?? 'General');
+}
+
+class Proxy {
+  final int id, port;
+  final String type, host;
+  final String? username;
+  final bool isHealthy;
+  Proxy(this.id, this.port, this.type, this.host, this.username, this.isHealthy);
+  factory Proxy.fromJson(Map<String, dynamic> j) =>
+      Proxy(j['id'], j['port'] ?? 0, j['type'] ?? '', j['host'] ?? '', j['username'], j['isHealthy'] ?? false);
+}
+
+class AutoReplyRule {
+  final int id, accountId, priority;
+  final String matchType, pattern;
+  final String? responseText;
+  final bool useAi, isActive;
+  AutoReplyRule(this.id, this.accountId, this.priority, this.matchType, this.pattern, this.responseText, this.useAi, this.isActive);
+  factory AutoReplyRule.fromJson(Map<String, dynamic> j) => AutoReplyRule(
+        j['id'], j['accountId'] ?? 0, j['priority'] ?? 0, j['matchType'] ?? '', j['pattern'] ?? '',
+        j['responseText'], j['useAi'] ?? false, j['isActive'] ?? true);
+}
+
+class AiProviderInfo {
+  final String id, name;
+  final bool free, needsKey;
+  final List<String> models;
+  final String? signupUrl;
+  AiProviderInfo(this.id, this.name, this.free, this.needsKey, this.models, this.signupUrl);
+  factory AiProviderInfo.fromJson(Map<String, dynamic> j) => AiProviderInfo(
+        j['id'] ?? '', j['name'] ?? '', j['free'] ?? false, j['needsKey'] ?? false,
+        ((j['models'] ?? []) as List).map((e) => e.toString()).toList(), j['signupUrl']);
+}
+
+class AiSettings {
+  final String? provider;
+  final String model, systemPrompt;
+  final bool isActive;
+  final String? maskedApiKey;
+  AiSettings(this.provider, this.model, this.systemPrompt, this.isActive, this.maskedApiKey);
+  factory AiSettings.fromJson(Map<String, dynamic> j) => AiSettings(
+        j['provider'], j['model'] ?? '', j['systemPrompt'] ?? '', j['isActive'] ?? false, j['maskedApiKey']);
+}
+
+class AppUser {
+  final int id;
+  final String email, displayName, role;
+  final bool isActive;
+  AppUser(this.id, this.email, this.displayName, this.role, this.isActive);
+  factory AppUser.fromJson(Map<String, dynamic> j) =>
+      AppUser(j['id'], j['email'] ?? '', j['displayName'] ?? '', j['role'] ?? 'User', j['isActive'] ?? true);
+}
+
+class DeliveryReport {
+  final int sent, delivered, read, failed;
+  final double deliveryRate, readRate;
+  DeliveryReport(this.sent, this.delivered, this.read, this.failed, this.deliveryRate, this.readRate);
+  factory DeliveryReport.fromJson(Map<String, dynamic> j) => DeliveryReport(
+        j['sent'] ?? 0, j['delivered'] ?? 0, j['read'] ?? 0, j['failed'] ?? 0,
+        (j['deliveryRate'] ?? 0).toDouble(), (j['readRate'] ?? 0).toDouble());
+}
+
+class Activation {
+  final int id;
+  final String hwid;
+  final String? deviceName, revokedAt;
+  Activation(this.id, this.hwid, this.deviceName, this.revokedAt);
+  factory Activation.fromJson(Map<String, dynamic> j) =>
+      Activation(j['id'], j['hwid'] ?? '', j['deviceName'], j['revokedAt']);
+}
