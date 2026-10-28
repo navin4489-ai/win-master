@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
@@ -93,7 +93,7 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
   }
   `
 })
-export class CampaignsComponent implements OnInit {
+export class CampaignsComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private toast = inject(ToastService);
   items = signal<Campaign[]>([]);
@@ -104,8 +104,30 @@ export class CampaignsComponent implements OnInit {
   aiBusy = signal(false);
   q = ''; status = '';
   form: any = this.blank();
+  private pollTimer: any = null;
 
-  ngOnInit() { this.load(); }
+  ngOnInit() { this.load(); this.startPolling(); }
+  ngOnDestroy() { this.stopPolling(); }
+
+  // Silently refresh the list every 5s while any campaign is actively progressing,
+  // so statuses/progress update without a manual reload.
+  private startPolling() {
+    this.stopPolling();
+    this.pollTimer = setInterval(() => {
+      if (this.showCreate()) return; // don't refresh under the open modal
+      const active = this.items().some(c => c.status === 'Running' || c.status === 'Scheduled' || c.status === 'Paused');
+      if (active) this.refresh();
+    }, 5000);
+  }
+  private stopPolling() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } }
+
+  // Refresh without toggling the loading spinner (avoids flicker during polling).
+  private refresh() {
+    this.api.campaigns({ q: this.q, status: this.status, pageSize: 100 }).subscribe({
+      next: r => this.items.set(r.items),
+      error: () => {}
+    });
+  }
 
   load() {
     this.loading.set(true);
