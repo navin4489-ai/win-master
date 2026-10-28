@@ -185,14 +185,17 @@ export async function sendMessage(accountId, { to, text, mediaUrl, mediaType }) 
   const jid = normalizeJid(to);
 
   // Verify the recipient is actually on WhatsApp so a bad/unregistered number
-  // fails with a clear reason instead of silently going nowhere.
+  // fails with a clear reason instead of silently going nowhere. Bounded so a
+  // stalled check can never hang the send.
   try {
-    const results = await entry.sock.onWhatsApp(jid);
+    const check = entry.sock.onWhatsApp(jid);
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("onWhatsApp timeout")), 8000));
+    const results = await Promise.race([check, timeout]);
     const exists = Array.isArray(results) && results.some((r) => r?.exists);
     if (!exists) throw new Error("recipient is not on WhatsApp");
   } catch (err) {
     if (err.message === "recipient is not on WhatsApp") throw err;
-    // If the check itself fails (network), fall through and attempt the send.
+    // If the check itself fails/times out, fall through and attempt the send.
   }
 
   const content = buildContent({ text, mediaUrl, mediaType });

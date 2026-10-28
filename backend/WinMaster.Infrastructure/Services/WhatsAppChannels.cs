@@ -72,7 +72,10 @@ public class BaileysBridgeChannel : IWhatsAppChannel
                 buttons = message.ButtonsJson,
                 listMenu = message.ListMenuJson
             };
-            var resp = await client.PostAsJsonAsync($"{baseUrl}/sessions/{accountId}/send", payload, ct);
+            // Bound each send so a hung bridge/session can never freeze the campaign worker.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(25));
+            var resp = await client.PostAsJsonAsync($"{baseUrl}/sessions/{accountId}/send", payload, timeout.Token);
             if (resp.IsSuccessStatusCode)
             {
                 var result = await resp.Content.ReadFromJsonAsync<BridgeSendResponse>(cancellationToken: ct);
@@ -83,6 +86,11 @@ public class BaileysBridgeChannel : IWhatsAppChannel
             var reason = await resp.Content.ReadAsStringAsync(ct);
             reason = ExtractError(reason);
             return new SendResult(false, null, string.IsNullOrWhiteSpace(reason) ? $"Bridge returned {(int)resp.StatusCode}" : reason);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // App shutdown — propagate so the worker stops cleanly.
+            throw;
         }
         catch (Exception ex)
         {
@@ -95,8 +103,8 @@ public class BaileysBridgeChannel : IWhatsAppChannel
                 _log.LogWarning(ex, "Bridge unreachable; simulating send for account {AccountId}", accountId);
                 return new SendResult(true, $"wamid.sim.{Guid.NewGuid():N}", null);
             }
-            _log.LogError(ex, "Bridge unreachable for account {AccountId}", accountId);
-            return new SendResult(false, null, $"Bridge unreachable: {ex.Message}");
+            _log.LogError(ex, "Bridge send failed for account {AccountId}", accountId);
+            return new SendResult(false, null, $"Bridge send failed: {ex.Message}");
         }
     }
 

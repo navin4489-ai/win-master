@@ -380,6 +380,9 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.Property<int>("LastRecipientId")
                         .HasColumnType("integer");
 
+                    b.Property<int>("NextSendDelaySec")
+                        .HasColumnType("integer");
+
                     b.Property<int>("RotationIndex")
                         .HasColumnType("integer");
 

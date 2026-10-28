@@ -224,6 +224,8 @@ public class CampaignCheckpoint : BaseEntity
     public int LastRecipientId { get; set; }
     public int SentInBatch { get; set; }
     public int RotationIndex { get; set; }
+    /// <summary>Seconds to wait (from UpdatedAt) before sending the next recipient — non-blocking pacing.</summary>
+    public int NextSendDelaySec { get; set; }
 }
 
 public class AccountAntiBanSettings : BaseEntity

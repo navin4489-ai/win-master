@@ -40,14 +40,81 @@ public class CampaignWorker : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var factory = scope.ServiceProvider.GetRequiredService<IWhatsAppChannelFactory>();
 
-        var campaignId = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running)
-            .OrderBy(c => c.StartedAt).Select(c => c.Id).FirstOrDefaultAsync(ct);
-        if (campaignId == 0) return;
-
-        await ProcessOneBatchAsync(db, factory, campaignId, ct);
+        // Process every running campaign each tick (round-robin), so one campaign's
+        // pacing can never starve the others.
+        var running = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running)
+            .OrderBy(c => c.StartedAt).Select(c => c.Id).ToListAsync(ct);
+        foreach (var id in running)
+        {
+            if (ct.IsCancellationRequested) return;
+            try { await ProcessDueAsync(db, factory, id, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex) { _log.LogError(ex, "Campaign {Id} batch failed.", id); }
+        }
     }
 
-    /// <summary>Processes a single pacing batch; exposed for integration tests.</summary>
+    /// <summary>
+    /// Sends at most one recipient per tick for a campaign, honoring pacing via the
+    /// checkpoint timestamp (no blocking Task.Delay). This keeps the worker responsive
+    /// and prevents a single slow/hung send from freezing all campaigns.
+    /// </summary>
+    private async Task ProcessDueAsync(AppDbContext db, IWhatsAppChannelFactory factory, int campaignId, CancellationToken ct)
+    {
+        var c = await db.Campaigns.Include(x => x.Template).FirstOrDefaultAsync(x => x.Id == campaignId, ct);
+        if (c is null || c.Status != CampaignStatus.Running) return;
+
+        var cp = await db.CampaignCheckpoints.FirstOrDefaultAsync(x => x.CampaignId == campaignId, ct);
+        if (cp is null) { cp = new CampaignCheckpoint { CampaignId = campaignId }; db.CampaignCheckpoints.Add(cp); await db.SaveChangesAsync(ct); }
+
+        // Pacing gate: wait out the inter-message delay without blocking the thread.
+        var waitSec = cp.NextSendDelaySec > 0 ? cp.NextSendDelaySec : 0;
+        if (cp.UpdatedAt.HasValue && DateTime.UtcNow < cp.UpdatedAt.Value.AddSeconds(waitSec))
+            return;
+
+        var recipient = await db.CampaignRecipients
+            .Where(r => r.CampaignId == campaignId && r.Status == RecipientStatus.Pending)
+            .OrderBy(r => r.Id).FirstOrDefaultAsync(ct);
+        if (recipient is null) { await CompleteAsync(db, c, ct); return; }
+
+        var accounts = await ResolveAccountsAsync(db, c, ct);
+        recipient.Status = RecipientStatus.Sending;
+        await db.SaveChangesAsync(ct);
+
+        var body = BuildMessage(c, recipient);
+        recipient.VariantText = body;
+
+        var channel = factory.For(c.EngineType);
+        var accountId = accounts.Count == 0 ? (c.AccountId ?? 0) : accounts[cp.RotationIndex % accounts.Count];
+        var result = await channel.SendAsync(accountId, new OutboundMessage(recipient.Phone, body, null, MediaType.None, null, null), ct);
+
+        if (result.Success)
+        {
+            recipient.Status = RecipientStatus.Sent; recipient.SentAt = DateTime.UtcNow; recipient.MessageId = result.MessageId;
+            c.ProcessedCount++;
+        }
+        else { recipient.Status = RecipientStatus.Failed; recipient.Error = result.Error; c.FailedCount++; c.ProcessedCount++; }
+
+        cp.LastRecipientId = recipient.Id;
+        cp.RotationIndex = c.RotationMode == RotationMode.RoundRobin ? cp.RotationIndex + 1 : cp.RotationIndex;
+        cp.UpdatedAt = DateTime.UtcNow;
+        // Schedule the next send after a randomized human delay (+ batch cooldown).
+        var rng = new Random();
+        var delay = rng.Next(c.MinDelaySec, Math.Max(c.MinDelaySec + 1, c.MaxDelaySec + 1));
+        cp.SentInBatch++;
+        if (c.BatchSize > 0 && cp.SentInBatch >= c.BatchSize && c.CooldownMinutes > 0)
+        {
+            delay = c.CooldownMinutes * 60;
+            cp.SentInBatch = 0;
+        }
+        cp.NextSendDelaySec = delay;
+        await db.SaveChangesAsync(ct);
+
+        // If that was the last pending recipient, complete immediately.
+        var anyLeft = await db.CampaignRecipients.AnyAsync(r => r.CampaignId == campaignId && r.Status == RecipientStatus.Pending, ct);
+        if (!anyLeft) await CompleteAsync(db, c, ct);
+    }
+
+    /// <summary>Processes a single pacing batch; exposed for integration tests (no delays).</summary>
     public async Task ProcessOneBatchAsync(AppDbContext db, IWhatsAppChannelFactory factory, int campaignId, CancellationToken ct, bool noDelay = false)
     {
         var c = await db.Campaigns.FirstOrDefaultAsync(x => x.Id == campaignId, ct);
@@ -58,13 +125,11 @@ public class CampaignWorker : BackgroundService
 
         var channel = factory.For(c.EngineType);
         var accounts = await ResolveAccountsAsync(db, c, ct);
-        var rng = new Random();
         int sentThisBatch = 0;
 
         while (sentThisBatch < c.BatchSize)
         {
             if (ct.IsCancellationRequested) return;
-            // Resume point: only ever pick Pending rows beyond the checkpoint — a Sent row is never reselected.
             var recipient = await db.CampaignRecipients
                 .Where(r => r.CampaignId == campaignId && r.Status == RecipientStatus.Pending && r.Id > cp.LastRecipientId)
                 .OrderBy(r => r.Id).FirstOrDefaultAsync(ct);
@@ -96,17 +161,7 @@ public class CampaignWorker : BackgroundService
             cp.RotationIndex = c.RotationMode == RotationMode.RoundRobin ? cp.RotationIndex + 1 : cp.RotationIndex;
             cp.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
-
-            if (!noDelay)
-            {
-                var delay = rng.Next(c.MinDelaySec, Math.Max(c.MinDelaySec + 1, c.MaxDelaySec + 1));
-                await Task.Delay(TimeSpan.FromSeconds(delay), ct);
-            }
         }
-
-        // Batch cooldown (anti-ban).
-        if (!noDelay && c.CooldownMinutes > 0)
-            await Task.Delay(TimeSpan.FromMinutes(c.CooldownMinutes), ct);
     }
 
     private static async Task<List<int>> ResolveAccountsAsync(AppDbContext db, Campaign c, CancellationToken ct)
