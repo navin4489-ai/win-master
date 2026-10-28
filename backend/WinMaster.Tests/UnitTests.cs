@@ -1,3 +1,4 @@
+using System.Net.Http;
 using WinMaster.Core;
 using WinMaster.Core.Services;
 using WinMaster.Infrastructure.Services;
@@ -137,4 +138,46 @@ public class HierarchyTests
     [InlineData(UserRole.User, UserRole.User, false)]
     public void CanManage(UserRole actor, UserRole target, bool expected)
         => Assert.Equal(expected, Hierarchy.CanManage(actor, target));
+}
+
+public class AiGeneratorTests
+{
+    [Fact]
+    public void GenerateMarketing_IncludesVariableAndSpintax()
+    {
+        var msg = LocalGenerator.GenerateMarketing("20% off weekend sale");
+        Assert.Contains("{{Name}}", msg);
+        Assert.Contains("|", msg); // spintax present
+        Assert.Contains("20% off weekend sale", msg);
+    }
+
+    [Fact]
+    public void Respond_PricingQuestion_GivesPricingReply()
+    {
+        var reply = LocalGenerator.Respond("how much does it cost?", "");
+        Assert.Contains("pricing", reply, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Respond_Greeting_Greets()
+    {
+        var reply = LocalGenerator.Respond("hello there", "");
+        Assert.Contains("Hello", reply);
+    }
+
+    [Fact]
+    public async Task AiClient_FallsBackToLocal_WithoutKey()
+    {
+        var factory = new Moq();
+        var client = new AiClient(factory, Microsoft.Extensions.Logging.Abstractions.NullLogger<AiClient>.Instance);
+        var reply = await client.CompleteAsync(WinMaster.Core.AiProvider.Groq, null, "llama",
+            new[] { new WinMaster.Core.Interfaces.AiMessage("user", "write a promo about shoes") });
+        Assert.False(string.IsNullOrWhiteSpace(reply.Text));
+    }
+
+    // Minimal IHttpClientFactory stub (no real HTTP needed; keyless path never calls out).
+    private sealed class Moq : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
+    }
 }

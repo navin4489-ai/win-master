@@ -61,11 +61,14 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    // Migrations are generated for PostgreSQL. Apply them only on a Postgres provider;
+    // for the SQLite dev fallback, create the schema directly from the model.
+    var usePostgres = db.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
     for (var attempt = 1; attempt <= 10; attempt++)
     {
         try
         {
-            if (db.Database.IsRelational() && db.Database.GetPendingMigrations().Any())
+            if (usePostgres)
                 db.Database.Migrate();
             else
                 db.Database.EnsureCreated();

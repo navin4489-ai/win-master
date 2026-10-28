@@ -101,8 +101,10 @@ export class ApiService {
 
   // AI
   aiSettings() { return this.http.get<M.AiSettings>(`${this.base}/ai-settings`); }
+  aiProviders() { return this.http.get<any>(`${this.base}/ai-settings/providers`); }
   updateAi(b: any) { return this.http.put<M.AiSettings>(`${this.base}/ai-settings`, b); }
   testAi(message: string) { return this.http.post<any>(`${this.base}/ai-settings/test`, { message }); }
+  aiGenerate(b: any) { return this.http.post<any>(`${this.base}/ai-settings/generate`, b); }
 
   // Inbox
   threads(q: any) { return this.http.get<M.Paged<M.InboxThread>>(`${this.base}/inbox/threads`, { params: this.params(q) }); }

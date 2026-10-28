@@ -66,7 +66,10 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
             </select>
           </div>
           @if (!form.templateId) {
-            <div class="field"><label>Message</label><textarea class="input" rows="3" [(ngModel)]="form.body" placeholder="{{ '{Hi|Hello}' }} {{ '{{Name}}' }}, ..."></textarea></div>
+            <div class="field">
+              <label class="between">Message <button class="btn btn-ghost btn-sm" type="button" (click)="aiGenerate()" [disabled]="aiBusy()">{{ aiBusy() ? '…' : '✨ AI generate' }}</button></label>
+              <textarea class="input" rows="3" [(ngModel)]="form.body" placeholder="{{ '{Hi|Hello}' }} {{ '{{Name}}' }}, ..."></textarea>
+            </div>
           }
           <div class="flex gap">
             <div class="field" style="flex:1"><label>Engine</label><select class="input" [(ngModel)]="form.engineType"><option>Baileys</option><option>CloudApi</option></select></div>
@@ -98,6 +101,7 @@ export class CampaignsComponent implements OnInit {
   templates = signal<Template[]>([]);
   loading = signal(true);
   showCreate = signal(false);
+  aiBusy = signal(false);
   q = ''; status = '';
   form: any = this.blank();
 
@@ -133,5 +137,13 @@ export class CampaignsComponent implements OnInit {
     this.api.campaignAction(c.id, a).subscribe({ next: () => { this.toast.success(`Campaign ${a}ed`); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') });
   }
   badge(s: string) { return { Running: 'badge-blue', Completed: 'badge-green', Scheduled: 'badge-amber', Failed: 'badge-red', Paused: 'badge-amber' }[s] || 'badge-gray'; }
+  aiGenerate() {
+    if (!this.form.name && !this.form.body) { this.toast.error('Enter a campaign name or topic first'); return; }
+    this.aiBusy.set(true);
+    const prompt = this.form.body?.trim() || this.form.name;
+    this.api.aiGenerate({ prompt, tone: 'Friendly', goal: 'Drive sales', includeSpintax: this.form.spintaxEnabled, includeVariables: true })
+      .subscribe({ next: (r: any) => { this.form.body = r.message; this.aiBusy.set(false); this.toast.success('AI message generated'); },
+        error: (e: any) => { this.aiBusy.set(false); this.toast.error(e?.error?.detail || 'AI failed'); } });
+  }
   blank() { return { name: '', groupId: null, templateId: null, body: '', engineType: 'Baileys', rotationMode: 'RoundRobin', scheduledAt: '', spintaxEnabled: true, personalizeMessage: true, pacing: { minDelaySec: 5, maxDelaySec: 15, batchSize: 50, cooldownMinutes: 5 } }; }
 }
