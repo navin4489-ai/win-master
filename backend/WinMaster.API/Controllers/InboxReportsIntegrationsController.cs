@@ -102,6 +102,26 @@ public class IntegrationsController : ControllerBase
         return Forbid();
     }
 
+    /// <summary>Diagnostic: pings the co-hosted WhatsApp bridge and reports whether it is reachable.</summary>
+    [AllowAnonymous]
+    [HttpGet("bridge/health")]
+    public async Task<IActionResult> BridgeHealth([FromServices] IHttpClientFactory httpFactory)
+    {
+        var baseUrl = (_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001").TrimEnd('/');
+        try
+        {
+            var client = httpFactory.CreateClient("bridge");
+            client.Timeout = TimeSpan.FromSeconds(5);
+            var resp = await client.GetAsync($"{baseUrl}/healthz");
+            var body = await resp.Content.ReadAsStringAsync();
+            return Ok(new { baseUrl, reachable = resp.IsSuccessStatusCode, status = (int)resp.StatusCode, body });
+        }
+        catch (Exception ex)
+        {
+            return Ok(new { baseUrl, reachable = false, error = ex.GetType().Name, message = ex.Message });
+        }
+    }
+
     [AllowAnonymous]
     [HttpPost("webhooks/meta")]
     public IActionResult MetaWebhook() => Ok(new { received = true });
