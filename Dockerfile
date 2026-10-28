@@ -1,8 +1,9 @@
 # ---------- Stage 1: build Angular web ----------
 FROM node:20-alpine AS web
 WORKDIR /web
+ENV NODE_OPTIONS=--max-old-space-size=1536
 COPY web/winmaster-web/package*.json ./
-RUN npm ci
+RUN npm ci || npm install
 COPY web/winmaster-web/ ./
 RUN npm run build -- --configuration production
 
