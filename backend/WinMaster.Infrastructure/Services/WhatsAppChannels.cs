@@ -56,7 +56,7 @@ public class BaileysBridgeChannel : IWhatsAppChannel
 
     public async Task<SendResult> SendAsync(int accountId, OutboundMessage message, CancellationToken ct = default)
     {
-        var baseUrl = _cfg["Bridge:BaseUrl"] ?? "http://localhost:3001";
+        var baseUrl = WaBridgeClient.NormalizeBaseUrl(_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001");
         var key = _cfg["Bridge:Key"] ?? "dev-bridge-key";
         try
         {
@@ -109,7 +109,7 @@ public class WaBridgeClient : IWaBridgeClient
 
     private async Task<bool> PostAsync(string path, CancellationToken ct)
     {
-        var baseUrl = (_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001").TrimEnd('/');
+        var baseUrl = NormalizeBaseUrl(_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001");
         var key = _cfg["Bridge:Key"] ?? "dev-bridge-key";
         try
         {
@@ -129,6 +129,16 @@ public class WaBridgeClient : IWaBridgeClient
             _log.LogWarning(ex, "Bridge unreachable for {Path}", path);
             return false;
         }
+    }
+
+    // Render's fromService hostport yields "host:port" with no scheme; default to http.
+    internal static string NormalizeBaseUrl(string value)
+    {
+        value = value.Trim().TrimEnd('/');
+        if (!value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            value = "http://" + value;
+        return value;
     }
 }
 

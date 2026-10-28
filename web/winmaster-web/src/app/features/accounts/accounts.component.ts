@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
 import { ToastService } from '../../core/toast.service';
@@ -41,13 +41,17 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
     </div></div>
   }
   @if (qrAccount(); as a) {
-    <div class="modal-backdrop" (click)="qrAccount.set(null)"><div class="modal" (click)="$event.stopPropagation()">
+    <div class="modal-backdrop" (click)="closeQr()"><div class="modal" (click)="$event.stopPropagation()">
       <div class="modal-head">Scan QR — {{ a.displayName }}</div>
       <div class="modal-body" style="text-align:center">
-        <div class="qr">{{ qrData() || 'Waiting for QR…' }}</div>
+        @if (qrPng()) {
+          <img class="qr-img" [src]="'data:image/png;base64,' + qrPng()" alt="WhatsApp QR code" />
+        } @else {
+          <div class="qr">{{ qrStatus() }}</div>
+        }
         <p class="muted">Open WhatsApp → Linked devices → Link a device.</p>
       </div>
-      <div class="modal-foot"><button class="btn btn-ghost" (click)="qrAccount.set(null)">Close</button></div>
+      <div class="modal-foot"><button class="btn btn-ghost" (click)="closeQr()">Close</button></div>
     </div></div>
   }
   @if (antiBanAccount(); as a) {
@@ -62,9 +66,9 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
     </div></div>
   }
   `,
-  styles: [`.qr { font-family:monospace; word-break:break-all; background:var(--panel-2); padding:1.5rem; border-radius:10px; margin-bottom:1rem; }`]
+  styles: [`.qr { font-family:monospace; word-break:break-all; background:var(--panel-2); padding:1.5rem; border-radius:10px; margin-bottom:1rem; } .qr-img { width:260px; height:260px; background:#fff; padding:12px; border-radius:10px; margin-bottom:1rem; }`]
 })
-export class AccountsComponent implements OnInit {
+export class AccountsComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private toast = inject(ToastService);
   items = signal<WaAccount[]>([]);
@@ -72,16 +76,47 @@ export class AccountsComponent implements OnInit {
   loading = signal(true);
   showCreate = signal(false);
   qrAccount = signal<WaAccount | null>(null);
-  qrData = signal<string | null>(null);
+  qrPng = signal<string | null>(null);
+  qrStatus = signal('Waiting for QR…');
+  private qrTimer: any = null;
   antiBanAccount = signal<WaAccount | null>(null);
   antiBan: AntiBan = { minDelaySec: 5, maxDelaySec: 15, batchSize: 50, cooldownMinutes: 5, dailyCap: 1000 };
   form: any = {};
 
   ngOnInit() { this.load(); }
+  ngOnDestroy() { this.stopQrPolling(); }
   load() { this.loading.set(true); this.api.accounts().subscribe({ next: r => { this.items.set(r); this.loading.set(false); }, error: () => { this.loading.set(false); this.toast.error('API unreachable'); } }); }
   openCreate() { this.form = { displayName: '', engineType: 'Baileys', phoneNumber: '', proxyId: null }; this.api.proxies().subscribe(p => this.proxies.set(p)); this.showCreate.set(true); }
   create() { this.api.createAccount(this.form).subscribe({ next: () => { this.toast.success('Account added'); this.showCreate.set(false); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') }); }
-  connect(a: WaAccount) { this.api.connectAccount(a.id).subscribe(() => { this.qrAccount.set(a); this.api.accountQr(a.id).subscribe(q => this.qrData.set(q.qrData || null)); this.load(); }); }
+
+  connect(a: WaAccount) {
+    this.qrPng.set(null);
+    this.qrStatus.set('Starting session…');
+    this.qrAccount.set(a);
+    this.api.connectAccount(a.id).subscribe({
+      next: () => { this.qrStatus.set('Waiting for QR…'); this.startQrPolling(a.id); this.load(); },
+      error: e => { this.qrStatus.set(e?.error?.detail || 'Failed to start session'); this.toast.error(e?.error?.detail || 'Failed to connect'); }
+    });
+  }
+
+  private startQrPolling(id: number) {
+    this.stopQrPolling();
+    const poll = () => this.api.accountQr(id).subscribe(q => {
+      if (q.qrPngBase64) { this.qrPng.set(q.qrPngBase64); this.qrStatus.set(''); }
+    });
+    poll();
+    this.qrTimer = setInterval(() => {
+      // Stop once the account reports Connected; refresh the list to reflect it.
+      const acc = this.items().find(x => x.id === id);
+      if (acc && acc.status === 'Connected') { this.toast.success('WhatsApp connected'); this.closeQr(); return; }
+      poll();
+      this.api.accounts().subscribe(r => this.items.set(r));
+    }, 2500);
+  }
+
+  private stopQrPolling() { if (this.qrTimer) { clearInterval(this.qrTimer); this.qrTimer = null; } }
+  closeQr() { this.stopQrPolling(); this.qrAccount.set(null); this.qrPng.set(null); }
+
   disconnect(a: WaAccount) { this.api.disconnectAccount(a.id).subscribe(() => { this.toast.success('Disconnected'); this.load(); }); }
   remove(a: WaAccount) { if (confirm('Delete account?')) this.api.deleteAccount(a.id).subscribe(() => { this.toast.success('Deleted'); this.load(); }); }
   openAntiBan(a: WaAccount) { this.antiBanAccount.set(a); this.api.antiBan(a.id).subscribe(s => this.antiBan = s); }

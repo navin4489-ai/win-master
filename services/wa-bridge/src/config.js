@@ -1,13 +1,20 @@
 // Configuration for the WhatsApp bridge, resolved from environment variables.
 // All values have safe local-dev defaults so the bridge runs out of the box.
 
+function normalizeUrl(value) {
+  value = String(value).trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(value)) value = "http://" + value;
+  return value;
+}
+
 export const config = {
   // Port the bridge HTTP server listens on. Render injects PORT.
   port: parseInt(process.env.PORT || process.env.BRIDGE_PORT || "3001", 10),
 
   // Base URL of the .NET API that receives callbacks (qr/connected/message/...).
-  // In Render this is the internal URL of the web service.
-  apiBaseUrl: (process.env.API_BASE_URL || "http://localhost:5188").replace(/\/+$/, ""),
+  // In Render this is the internal URL of the web service. Render's fromService
+  // hostport yields "host:port" with no scheme, so default to http://.
+  apiBaseUrl: normalizeUrl(process.env.API_BASE_URL || "http://localhost:5188"),
 
   // Shared secret sent to the API as X-Bridge-Key and required on inbound
   // requests from the API. MUST match the API's Bridge__Key.

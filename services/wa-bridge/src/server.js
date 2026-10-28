@@ -6,13 +6,15 @@ import {
   stopSession,
   sessionStatus,
   sendMessage,
+  getQr,
+  sessionCount,
 } from "./session-manager.js";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
 // Health check (unauthenticated) for container orchestration.
-app.get("/healthz", (_req, res) => res.json({ status: "healthy" }));
+app.get("/healthz", (_req, res) => res.json({ status: "healthy", sessions: sessionCount() }));
 
 // All session routes require the shared bridge key. This is server-to-server
 // only; the API holds the same key in Bridge__Key.
@@ -55,6 +57,21 @@ app.post("/sessions/:id/disconnect", async (req, res) => {
 app.get("/sessions/:id/status", (req, res) => {
   try {
     res.json({ status: sessionStatus(accountId(req)) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Returns the current QR (data + PNG base64) if one is pending for this session.
+app.get("/sessions/:id/qr", (req, res) => {
+  try {
+    const qr = getQr(accountId(req));
+    if (!qr) return res.status(404).json({ error: "no qr available" });
+    res.json({
+      qrData: qr.qrData,
+      qrPngBase64: qr.qrPngBase64,
+      expiresAt: new Date(qr.expiresAt).toISOString(),
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

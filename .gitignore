@@ -34,3 +34,5 @@ mobile/.dart_tool/
 mobile/web/
 **/.flutter-plugins
 **/.flutter-plugins-dependencies
+
+services/wa-bridge/sessions/
