@@ -49,6 +49,10 @@ public interface IWaBridgeClient
 
     /// <summary>Stops a session. <paramref name="wipe"/> unlinks the device and clears stored credentials.</summary>
     Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default);
+
+    /// <summary>Returns the bridge's live session status ("connected", "qr", "connecting",
+    /// "disconnected"), or null when the bridge itself is unreachable.</summary>
+    Task<string?> StatusAsync(int accountId, CancellationToken ct = default);
 }
 
 public interface IPushService

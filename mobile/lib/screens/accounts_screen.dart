@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/providers.dart';
@@ -57,25 +59,14 @@ class AccountsScreen extends ConsumerWidget {
   Future<void> _connect(BuildContext context, WidgetRef ref, WaAccount a) async {
     try {
       await ref.read(apiProvider).post('/api/whatsapp-accounts/${a.id}/connect');
-      final qr = await ref.read(apiProvider).get('/api/whatsapp-accounts/${a.id}/qr');
       ref.invalidate(accountsProvider);
       if (context.mounted) {
-        showDialog(
+        await showDialog(
           context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text('Scan QR — ${a.displayName}'),
-            content: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: const Color(0xFFF6F8FB), borderRadius: BorderRadius.circular(10)),
-                child: SelectableText(qr['qrData']?.toString() ?? 'Waiting for QR…', style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
-              ),
-              const SizedBox(height: 10),
-              const Text('Open WhatsApp → Linked devices → Link a device', style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90))),
-            ]),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
-          ),
+          barrierDismissible: false,
+          builder: (ctx) => _QrDialog(accountId: a.id, displayName: a.displayName),
         );
+        ref.invalidate(accountsProvider);
       }
     } catch (e) {
       if (context.mounted) showError(context, e);
@@ -194,6 +185,87 @@ class AccountsScreen extends ConsumerWidget {
                 ),
         ),
       ),
+    );
+  }
+}
+
+/// Shows the WhatsApp QR as a scannable image, polling the API until the
+/// account links (then auto-closes). The QR arrives asynchronously from the
+/// bridge, so we poll /qr for the PNG and /status for "Connected".
+class _QrDialog extends ConsumerStatefulWidget {
+  final int accountId;
+  final String displayName;
+  const _QrDialog({required this.accountId, required this.displayName});
+  @override
+  ConsumerState<_QrDialog> createState() => _QrDialogState();
+}
+
+class _QrDialogState extends ConsumerState<_QrDialog> {
+  Timer? _timer;
+  String? _qrPng;
+  String _status = 'Starting session…';
+
+  @override
+  void initState() {
+    super.initState();
+    _poll();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _poll() async {
+    try {
+      final acc = await ref.read(apiProvider).get('/api/whatsapp-accounts/${widget.accountId}');
+      if ((acc['status']?.toString() ?? '') == 'Connected') {
+        _timer?.cancel();
+        if (mounted) {
+          showOk(context, 'WhatsApp connected!');
+          Navigator.of(context).pop();
+        }
+        return;
+      }
+      final qr = await ref.read(apiProvider).get('/api/whatsapp-accounts/${widget.accountId}/qr');
+      final png = qr['qrPngBase64']?.toString();
+      if (mounted) {
+        setState(() {
+          _qrPng = (png != null && png.isNotEmpty) ? png : _qrPng;
+          _status = _qrPng == null ? 'Waiting for QR…' : '';
+        });
+      }
+    } catch (_) {
+      // QR not ready yet (404) — keep polling.
+      if (mounted && _qrPng == null) setState(() => _status = 'Waiting for QR…');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Scan QR — ${widget.displayName}'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (_qrPng != null)
+          Image.memory(base64Decode(_qrPng!), width: 240, height: 240, gaplessPlayback: true)
+        else
+          SizedBox(
+            width: 240, height: 240,
+            child: Center(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 14),
+                Text(_status, style: const TextStyle(color: Color(0xFF6B7A90))),
+              ]),
+            ),
+          ),
+        const SizedBox(height: 12),
+        const Text('Open WhatsApp → Linked devices → Link a device',
+            textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90))),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
     );
   }
 }

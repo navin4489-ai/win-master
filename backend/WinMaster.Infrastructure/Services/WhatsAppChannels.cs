@@ -142,6 +142,31 @@ public class WaBridgeClient : IWaBridgeClient
     public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) =>
         PostAsync($"sessions/{accountId}/disconnect?wipe={(wipe ? "true" : "false")}", ct);
 
+    public async Task<string?> StatusAsync(int accountId, CancellationToken ct = default)
+    {
+        var baseUrl = NormalizeBaseUrl(_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001");
+        var key = _cfg["Bridge:Key"] ?? "dev-bridge-key";
+        try
+        {
+            var client = _http.CreateClient("bridge");
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/sessions/{accountId}/status");
+            req.Headers.Add("X-Bridge-Key", key);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            var resp = await client.SendAsync(req, timeout.Token);
+            if (!resp.IsSuccessStatusCode) return null;
+            var json = await resp.Content.ReadFromJsonAsync<StatusResponse>(cancellationToken: timeout.Token);
+            return json?.Status;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Bridge status check failed for account {AccountId}", accountId);
+            return null; // bridge unreachable
+        }
+    }
+
+    private record StatusResponse(string Status);
+
     private async Task<bool> PostAsync(string path, CancellationToken ct)
     {
         var baseUrl = NormalizeBaseUrl(_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001");

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using WinMaster.Core;
 using WinMaster.Core.Dtos;
 using WinMaster.Core.Entities;
+using WinMaster.Core.Interfaces;
 using WinMaster.Infrastructure.Data;
 
 namespace WinMaster.Infrastructure.Services;
@@ -10,7 +11,8 @@ namespace WinMaster.Infrastructure.Services;
 public class CampaignService
 {
     private readonly AppDbContext _db;
-    public CampaignService(AppDbContext db) => _db = db;
+    private readonly IWaBridgeClient _bridge;
+    public CampaignService(AppDbContext db, IWaBridgeClient bridge) { _db = db; _bridge = bridge; }
 
     public async Task<PagedResult<CampaignDto>> ListAsync(int ownerId, string? status, string? q, PageQuery page)
     {
@@ -85,6 +87,7 @@ public class CampaignService
             case "start":
                 if (c.Status is not (CampaignStatus.Draft or CampaignStatus.Scheduled or CampaignStatus.Paused))
                     throw new BusinessException("Cannot start from current state.");
+                await EnsureConnectedAsync(c);
                 await EnsureRecipientsAsync(c);
                 c.Status = CampaignStatus.Running; c.StartedAt ??= DateTime.UtcNow;
                 break;
@@ -101,6 +104,7 @@ public class CampaignService
                 // Pending, clear per-recipient results and the checkpoint, then run again.
                 if (c.Status is CampaignStatus.Running)
                     throw new BusinessException("Stop or pause the campaign before restarting.");
+                await EnsureConnectedAsync(c);
                 await EnsureRecipientsAsync(c);
                 await _db.CampaignRecipients.Where(r => r.CampaignId == c.Id).ExecuteUpdateAsync(s => s
                     .SetProperty(r => r.Status, RecipientStatus.Pending)
@@ -119,6 +123,60 @@ public class CampaignService
         }
         await _db.SaveChangesAsync();
         return Map(c);
+    }
+
+    /// <summary>
+    /// Verifies a WhatsApp account is actually linked before a campaign can send.
+    /// Baileys accounts must have a LIVE bridge session (QR scanned); if none is
+    /// connected we block the start and tell the user to scan the QR. CloudApi uses
+    /// stored Meta credentials, so only a credential check applies.
+    /// </summary>
+    private async Task EnsureConnectedAsync(Campaign c)
+    {
+        if (c.EngineType == EngineType.CloudApi)
+        {
+            var hasCreds = c.AccountId.HasValue
+                ? await _db.WhatsAppAccounts.AnyAsync(a => a.Id == c.AccountId && a.CredentialsEnc != null)
+                : await _db.WhatsAppAccounts.AnyAsync(a => a.OwnerId == c.OwnerId && a.EngineType == EngineType.CloudApi && a.CredentialsEnc != null);
+            if (!hasCreds)
+                throw new BusinessException("No WhatsApp Cloud API credentials configured. Add them on the account before sending.");
+            return;
+        }
+
+        // Candidate Baileys accounts for this campaign.
+        var accounts = c.AccountId.HasValue
+            ? await _db.WhatsAppAccounts.Where(a => a.Id == c.AccountId && a.OwnerId == c.OwnerId).ToListAsync()
+            : await _db.WhatsAppAccounts.Where(a => a.OwnerId == c.OwnerId && a.EngineType == EngineType.Baileys).ToListAsync();
+
+        if (accounts.Count == 0)
+            throw new BusinessException("No WhatsApp account for this campaign. Add and connect one first.");
+
+        // A send is only real when the bridge reports a live "connected" session.
+        var connectedId = 0;
+        var bridgeReachable = false;
+        foreach (var a in accounts)
+        {
+            var status = await _bridge.StatusAsync(a.Id);
+            if (status is not null) bridgeReachable = true;
+            if (string.Equals(status, "connected", StringComparison.OrdinalIgnoreCase)) { connectedId = a.Id; break; }
+        }
+
+        if (connectedId != 0)
+        {
+            // Keep the DB in sync with the live truth.
+            foreach (var a in accounts.Where(a => a.Id == connectedId && a.Status != WaAccountStatus.Connected))
+                a.Status = WaAccountStatus.Connected;
+            return;
+        }
+
+        // Nothing is actually linked. Mark stale "Connected" rows as disconnected so the UI is honest.
+        foreach (var a in accounts.Where(a => a.Status == WaAccountStatus.Connected))
+            a.Status = WaAccountStatus.Disconnected;
+        await _db.SaveChangesAsync();
+
+        if (!bridgeReachable)
+            throw new BusinessException("WhatsApp engine is offline. Open Accounts, connect a Baileys account and scan the QR, then try again.");
+        throw new BusinessException("No WhatsApp account is linked. Open Accounts → Connect and scan the QR with your phone before starting the campaign.");
     }
 
     /// <summary>Materializes one recipient row per contact (idempotent — duplicate-safe).</summary>
