@@ -119,6 +119,7 @@ public record InboxThreadDto(int Id, int AccountId, string AccountLabel, string 
 public record InboxMessageDto(int Id, int ThreadId, string Direction, string Body, string? MediaUrl, string? MediaType,
     string? Status, string? WaMessageId, DateTime SentAt, DateTime CreatedAt);
 public record SendMessageRequest(string Body, string? MediaUrl);
+public record SendToRequest(string Phone, string Body, int? AccountId, string? MediaUrl);
 public record BotToggleRequest(bool IsBotEnabled);
 
 // ---------- Reports / dashboard ----------

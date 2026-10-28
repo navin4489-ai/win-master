@@ -40,7 +40,7 @@ import { Contact } from '../../core/models';
             <td>{{ c.phone }}</td><td>{{ c.name }}</td>
             <td>@if (c.waRegistered === true) { <span class="badge badge-green">Yes</span> } @else if (c.waRegistered === false) { <span class="badge badge-red">No</span> } @else { <span class="badge badge-gray">?</span> }</td>
             <td>@for (t of c.tags; track t) { <span class="badge badge-blue" style="margin-right:3px">{{ t }}</span> }</td>
-            <td><button class="btn btn-danger btn-sm" (click)="del(c)">Delete</button></td>
+            <td class="row-actions"><button class="btn btn-primary btn-sm" (click)="openSend(c)">Send</button><button class="btn btn-danger btn-sm" (click)="del(c)">Delete</button></td>
           </tr>
         }
         @if (!items().length && !loading()) { <tr><td colspan="5" class="empty">No contacts</td></tr> }
@@ -55,6 +55,20 @@ import { Contact } from '../../core/models';
       </div>
     </div>
   </div>
+
+  @if (sendTo(); as c) {
+    <div class="modal-backdrop" (click)="sendTo.set(null)"><div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-head">Send WhatsApp message</div>
+      <div class="modal-body">
+        <p class="muted" style="margin-top:0">To <b>{{ c.name || c.phone }}</b> ({{ c.phone }}) from your connected account.</p>
+        <div class="field"><label>Message</label><textarea class="input" rows="3" [(ngModel)]="sendBody" placeholder="Type your message…"></textarea></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" (click)="sendTo.set(null)">Cancel</button>
+        <button class="btn btn-primary" (click)="doSend()" [disabled]="sending()">{{ sending() ? 'Sending…' : 'Send' }}</button>
+      </div>
+    </div></div>
+  }
   `,
   styles: [`
     .spinner { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
@@ -76,6 +90,19 @@ export class GroupDetailComponent implements OnInit {
   pageSize = 50;
   q = ''; valid: boolean | undefined = undefined;
   id = 0;
+  sendTo = signal<Contact | null>(null);
+  sendBody = '';
+  sending = signal(false);
+
+  openSend(c: Contact) { this.sendTo.set(c); this.sendBody = ''; }
+  doSend() {
+    const c = this.sendTo(); if (!c || !this.sendBody.trim()) return;
+    this.sending.set(true);
+    this.api.sendTo({ phone: c.phone, body: this.sendBody }).subscribe({
+      next: () => { this.sending.set(false); this.sendTo.set(null); this.toast.success('Message sent'); },
+      error: ex => { this.sending.set(false); this.toast.error(ex?.error?.detail || 'Send failed'); }
+    });
+  }
 
   ngOnInit() { this.id = +this.route.snapshot.params['id']; this.load(); }
   load() {

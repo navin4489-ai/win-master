@@ -245,6 +245,50 @@ public class InboxService
         _db.InboxMessages.Add(msg);
         t.LastMessageAt = DateTime.UtcNow; t.Preview = req.Body;
         await _db.SaveChangesAsync();
+        if (!result.Success) throw new BusinessException(result.Error ?? "Message could not be sent.");
+        return msg.ToDto();
+    }
+
+    /// <summary>
+    /// Sends a NEW outbound message to any phone number from a connected account,
+    /// creating the inbox thread if one doesn't exist. This is how a user initiates
+    /// a conversation with a freshly added contact (not just reply to inbound).
+    /// </summary>
+    public async Task<InboxMessageDto> SendToAsync(int ownerId, SendToRequest req, IWhatsAppChannelFactory factory)
+    {
+        var phone = PhoneUtils.Normalize(req.Phone);
+        if (!PhoneUtils.IsValid(phone)) throw new BusinessException("Invalid phone number.");
+
+        // Pick the account: the one requested, else the owner's first connected account.
+        WhatsAppAccount? account = null;
+        if (req.AccountId is int accId)
+            account = await _db.WhatsAppAccounts.FirstOrDefaultAsync(a => a.Id == accId && a.OwnerId == ownerId);
+        account ??= await _db.WhatsAppAccounts
+            .Where(a => a.OwnerId == ownerId && a.Status == WaAccountStatus.Connected)
+            .OrderBy(a => a.Id).FirstOrDefaultAsync();
+        account ??= await _db.WhatsAppAccounts.Where(a => a.OwnerId == ownerId).OrderBy(a => a.Id).FirstOrDefaultAsync();
+        if (account is null) throw new BusinessException("No WhatsApp account available. Add and connect one first.");
+
+        var thread = await _db.InboxThreads.FirstOrDefaultAsync(t => t.OwnerId == ownerId && t.AccountId == account.Id && t.ContactPhone == phone);
+        if (thread is null)
+        {
+            var contact = await _db.Contacts.Include(c => c.Group)
+                .FirstOrDefaultAsync(c => c.Group!.OwnerId == ownerId && c.Phone == phone);
+            thread = new InboxThread { OwnerId = ownerId, AccountId = account.Id, ContactPhone = phone, ContactName = contact?.Name };
+            _db.InboxThreads.Add(thread);
+            await _db.SaveChangesAsync();
+        }
+
+        var channel = factory.For(account.EngineType);
+        var result = await channel.SendAsync(account.Id, new OutboundMessage(phone, req.Body, req.MediaUrl, MediaType.None, null, null));
+        var msg = new InboxMessage { ThreadId = thread.Id, Direction = MessageDirection.Out, Body = req.Body, MediaUrl = req.MediaUrl,
+            Status = result.Success ? MessageStatus.Sent : MessageStatus.Failed, WaMessageId = result.MessageId };
+        _db.InboxMessages.Add(msg);
+        thread.LastMessageAt = DateTime.UtcNow; thread.Preview = req.Body;
+        if (!string.IsNullOrEmpty(result.MessageId) && result.Success)
+            account.SentToday += 1;
+        await _db.SaveChangesAsync();
+        if (!result.Success) throw new BusinessException(result.Error ?? "Message could not be sent.");
         return msg.ToDto();
     }
 

@@ -24,6 +24,9 @@ public class InboxController : ApiControllerBase
         => Ok(await _svc.MessagesAsync(UserId, id, Page(page, pageSize)));
     [HttpPost("threads/{id:int}/messages")] public async Task<ActionResult<InboxMessageDto>> Send(int id, SendMessageRequest req)
         => StatusCode(201, await _svc.SendAsync(UserId, id, req, _channels));
+    /// <summary>Start a new conversation: send a message to any number from a connected account.</summary>
+    [HttpPost("send")] public async Task<ActionResult<InboxMessageDto>> SendTo(SendToRequest req)
+        => StatusCode(201, await _svc.SendToAsync(UserId, req, _channels));
     [HttpPut("threads/{id:int}/bot")] public async Task<IActionResult> Bot(int id, BotToggleRequest req) { await _svc.ToggleBotAsync(UserId, id, req.IsBotEnabled); return NoContent(); }
     [HttpPost("threads/{id:int}/read")] public async Task<IActionResult> Read(int id) { await _svc.MarkReadAsync(UserId, id); return NoContent(); }
 }

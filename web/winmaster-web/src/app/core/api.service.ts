@@ -110,6 +110,7 @@ export class ApiService {
   threads(q: any) { return this.http.get<M.Paged<M.InboxThread>>(`${this.base}/inbox/threads`, { params: this.params(q) }); }
   messages(threadId: number, q: any) { return this.http.get<M.Paged<M.InboxMessage>>(`${this.base}/inbox/threads/${threadId}/messages`, { params: this.params(q) }); }
   sendMessage(threadId: number, b: any) { return this.http.post<M.InboxMessage>(`${this.base}/inbox/threads/${threadId}/messages`, b); }
+  sendTo(b: any) { return this.http.post<M.InboxMessage>(`${this.base}/inbox/send`, b); }
   toggleBot(threadId: number, isBotEnabled: boolean) { return this.http.put(`${this.base}/inbox/threads/${threadId}/bot`, { isBotEnabled }); }
   markRead(threadId: number) { return this.http.post(`${this.base}/inbox/threads/${threadId}/read`, {}); }
 

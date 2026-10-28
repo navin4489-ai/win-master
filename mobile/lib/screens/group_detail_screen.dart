@@ -56,6 +56,34 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     }
   }
 
+  Future<void> _send(Contact c) async {
+    final ctrl = TextEditingController();
+    final send = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Send to ${c.name ?? c.phone}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          const SizedBox(height: 4),
+          Text(c.phone, style: const TextStyle(color: Color(0xFF6B7A90), fontSize: 13)),
+          const SizedBox(height: 12),
+          TextField(controller: ctrl, maxLines: 3, autofocus: true, decoration: const InputDecoration(hintText: 'Type your message…')),
+          const SizedBox(height: 14),
+          FilledButton.icon(onPressed: () => Navigator.pop(ctx, true), icon: const Icon(Icons.send), label: const Text('Send message')),
+          const SizedBox(height: 16),
+        ]),
+      ),
+    );
+    if (send != true || ctrl.text.trim().isEmpty) return;
+    try {
+      await ref.read(apiProvider).post('/api/inbox/send', body: {'phone': c.phone, 'body': ctrl.text.trim()});
+      if (mounted) showOk(context, 'Message sent');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -93,11 +121,19 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                           return ListTile(
                             title: Text(c.name ?? c.phone),
                             subtitle: Text(c.phone),
-                            trailing: c.waRegistered == true
-                                ? const StatusChip('Active')
-                                : c.waRegistered == false
-                                    ? const Icon(Icons.cancel, color: Color(0xFFE11D48), size: 20)
-                                    : const Icon(Icons.help_outline, color: Color(0xFF64748B), size: 20),
+                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                              if (c.waRegistered == true)
+                                const StatusChip('Active')
+                              else if (c.waRegistered == false)
+                                const Icon(Icons.cancel, color: Color(0xFFE11D48), size: 20)
+                              else
+                                const Icon(Icons.help_outline, color: Color(0xFF64748B), size: 20),
+                              IconButton(
+                                icon: const Icon(Icons.send, color: Color(0xFF128C4A), size: 20),
+                                tooltip: 'Send message',
+                                onPressed: () => _send(c),
+                              ),
+                            ]),
                           );
                         },
                       ),
