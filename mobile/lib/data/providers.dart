@@ -27,9 +27,12 @@ class AuthController extends StateNotifier<AuthState> {
   /// Tries to restore a session from the stored refresh token on startup.
   Future<void> bootstrap() async {
     state = state.copyWith(loading: true);
+    // Show the branded splash for a minimum moment so it doesn't flash by.
+    final minSplash = Future<void>.delayed(const Duration(milliseconds: 1600));
     try {
       final rt = await _tokens.readRefresh();
       if (rt == null) {
+        await minSplash;
         state = const AuthState();
         return;
       }
@@ -37,9 +40,11 @@ class AuthController extends StateNotifier<AuthState> {
       final auth = AuthResult.fromJson(j);
       _tokens.accessToken = auth.accessToken;
       await _tokens.writeRefresh(auth.refreshToken);
+      await minSplash;
       state = AuthState(user: auth.user);
     } catch (_) {
       await _tokens.clear();
+      await minSplash;
       state = const AuthState();
     }
   }

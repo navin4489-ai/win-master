@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/config.dart';
 import '../data/providers.dart';
+import '../widgets/logo.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -39,18 +39,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           padding: const EdgeInsets.all(24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SizedBox(height: 40),
-            Center(
-              child: Container(
-                width: 64, height: 64,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [AppTheme.accent, AppTheme.primary]),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(Icons.chat_bubble_rounded, color: Colors.white, size: 34),
-              ),
-            ),
+            const Center(child: WinMasterLogo(size: 76)),
             const SizedBox(height: 16),
-            const Center(child: Text('Win Master', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
+            const Center(child: WinMasterWordmark(logoSize: 34)),
+            const SizedBox(height: 4),
             const Center(child: Text('WhatsApp marketing console', style: TextStyle(color: Color(0xFF6B7A90)))),
             const SizedBox(height: 32),
             const Text('Email', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
