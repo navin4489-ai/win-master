@@ -15,6 +15,9 @@ services:
     dockerContext: .
     healthCheckPath: /healthz
     autoDeployTrigger: commit
+    # Custom domain. After this deploys, add the DNS CNAME below and verify in Render.
+    domains:
+      - winmaster.wintechinov.com
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
