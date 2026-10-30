@@ -94,14 +94,20 @@ export async function startSession(accountId) {
     }
   });
 
-  // Forward incoming messages to the API for the unified inbox.
+  // Forward incoming 1:1 text messages to the API for the unified inbox + bot.
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
     for (const m of messages) {
       if (m.key.fromMe || !m.message) continue;
-      const from = (m.key.remoteJid || "").split("@")[0];
-      const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
-      await pushEvent("message", accountId, { from, body, waMessageId: m.key.id, timestamp: m.messageTimestamp });
+      const jid = m.key.remoteJid || "";
+      // Ignore status broadcasts and group chats (the 1:1 bot only answers direct chats).
+      if (jid === "status@broadcast" || jid.endsWith("@g.us") || jid.endsWith("@broadcast")) continue;
+
+      const text = extractText(m.message);
+      if (!text) continue; // nothing actionable (reaction, sticker, empty media, etc.)
+
+      const from = jid.split("@")[0];
+      await pushEvent("message", accountId, { from, body: text, waMessageId: m.key.id, timestamp: m.messageTimestamp });
     }
   });
 
@@ -203,6 +209,25 @@ export async function sendMessage(accountId, { to, text, mediaUrl, mediaType }) 
   const id = sent?.key?.id ?? null;
   logger.info({ accountId, jid, messageId: id }, "message sent");
   return id;
+}
+
+// Pulls user-visible text from any inbound message type so the bot can respond
+// to plain text, extended text, media captions, and button/list selections.
+export function extractText(message) {
+  if (!message) return "";
+  return (
+    message.conversation ||
+    message.extendedTextMessage?.text ||
+    message.imageMessage?.caption ||
+    message.videoMessage?.caption ||
+    message.documentMessage?.caption ||
+    message.buttonsResponseMessage?.selectedDisplayText ||
+    message.buttonsResponseMessage?.selectedButtonId ||
+    message.listResponseMessage?.title ||
+    message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    message.templateButtonReplyMessage?.selectedDisplayText ||
+    ""
+  ).trim();
 }
 
 // Builds a Baileys message content object from the API's send payload.

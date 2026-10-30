@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeJid, mapReceipt, buildContent } from "../src/session-manager.js";
+import { normalizeJid, mapReceipt, buildContent, extractText } from "../src/session-manager.js";
+
+test("extractText reads plain, extended, caption and button/list replies", () => {
+  assert.equal(extractText({ conversation: "hi" }), "hi");
+  assert.equal(extractText({ extendedTextMessage: { text: "hello there" } }), "hello there");
+  assert.equal(extractText({ imageMessage: { caption: "nice pic" } }), "nice pic");
+  assert.equal(extractText({ buttonsResponseMessage: { selectedDisplayText: "Yes" } }), "Yes");
+  assert.equal(extractText({ listResponseMessage: { title: "Option A" } }), "Option A");
+  assert.equal(extractText({ stickerMessage: {} }), "");
+  assert.equal(extractText(null), "");
+});
+
 
 test("normalizeJid strips non-digits and appends the WhatsApp suffix", () => {
   assert.equal(normalizeJid("+1 (555) 010-0001"), "15550100001@s.whatsapp.net");
