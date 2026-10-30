@@ -69,6 +69,18 @@ public class BridgeService
         thread.LastMessageAt = DateTime.UtcNow; thread.UnreadCount++; thread.Preview = body;
         await _db.SaveChangesAsync();
 
+        // Keep WhatsApp conversations in the same lead/conversion analytics used by
+        // Facebook, Instagram and Email; existing WhatsApp behavior is unchanged.
+        if (!await _db.LeadProfiles.AnyAsync(x => x.OwnerId == acc.OwnerId && x.ThreadId == thread.Id))
+        {
+            _db.LeadProfiles.Add(new LeadProfile
+            {
+                OwnerId = acc.OwnerId, ThreadId = thread.Id, DisplayName = thread.ContactName ?? from,
+                Phone = from, Channel = CommunicationChannel.WhatsApp, Status = LeadStatus.New
+            });
+            await _db.SaveChangesAsync();
+        }
+
         await TryAutoReplyAsync(acc, thread, body);
     }
 

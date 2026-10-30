@@ -26,9 +26,17 @@ public class OmnichannelService
     public OmnichannelService(AppDbContext db, IEncryptionService enc, IHttpClientFactory http, AiService ai)
     { _db = db; _enc = enc; _http = http; _ai = ai; }
 
-    public async Task<List<ChannelAccountDto>> AccountsAsync(int ownerId) =>
-        (await _db.ChannelAccounts.Where(x => x.OwnerId == ownerId).OrderBy(x => x.Channel).ToListAsync())
-        .Select(ToDto).ToList();
+    public async Task<List<ChannelAccountDto>> AccountsAsync(int ownerId)
+    {
+        var extra = (await _db.ChannelAccounts.Where(x => x.OwnerId == ownerId).OrderBy(x => x.Channel).ToListAsync())
+            .Select(ToDto).ToList();
+        // Include existing WhatsApp accounts in the unified channel view without
+        // changing their existing account/QR/campaign behavior.
+        var whatsapp = (await _db.WhatsAppAccounts.Where(x => x.OwnerId == ownerId).OrderBy(x => x.Id).ToListAsync())
+            .Select(x => new ChannelAccountDto(x.Id, CommunicationChannel.WhatsApp.ToString(), x.DisplayName,
+                x.PhoneNumber, null, null, null, x.Status == WaAccountStatus.Connected, x.LastSeenAt)).ToList();
+        return whatsapp.Concat(extra).ToList();
+    }
 
     public async Task<ChannelAccountDto> CreateAccountAsync(int ownerId, CreateChannelAccountRequest req)
     {

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WinMaster.Core;
 using WinMaster.Core.Dtos;
 using WinMaster.Infrastructure.Services;
 
@@ -33,7 +34,8 @@ public class AuthController : ApiControllerBase
 public class UsersController : ApiControllerBase
 {
     private readonly UserService _users;
-    public UsersController(UserService users) => _users = users;
+    private readonly SettingsService _settings;
+    public UsersController(UserService users, SettingsService settings) { _users = users; _settings = settings; }
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<UserDto>>> List(string? role, int? parentId, int page = 1, int pageSize = 50)
@@ -50,6 +52,14 @@ public class UsersController : ApiControllerBase
 
     [HttpGet("tree")]
     public async Task<ActionResult<List<UserTreeNode>>> Tree() => Ok(await _users.TreeAsync(Role, UserId));
+
+    /// <summary>Admin/SuperAdmin activity view for a specific user.</summary>
+    [HttpGet("{id:int}/activity")]
+    public async Task<ActionResult<PagedResult<AuditLogDto>>> Activity(int id, DateTime? from, DateTime? to, string? action, int page = 1, int pageSize = 50)
+    {
+        if (Role < UserRole.Admin) return Forbid();
+        return Ok(await _settings.AuditAsync(from, to, id, action, Page(page, pageSize)));
+    }
 }
 
 [ApiController]

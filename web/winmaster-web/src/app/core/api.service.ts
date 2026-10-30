@@ -21,6 +21,7 @@ export class ApiService {
   updateUser(id: number, b: any) { return this.http.put<M.User>(`${this.base}/users/${id}`, b); }
   deleteUser(id: number) { return this.http.delete(`${this.base}/users/${id}`); }
   userTree() { return this.http.get<M.UserTreeNode[]>(`${this.base}/users/tree`); }
+  userActivity(id: number, q: any = {}) { return this.http.get<M.Paged<M.AuditLog>>(`${this.base}/users/${id}/activity`, { params: this.params(q) }); }
 
   // Licenses
   licenses(q: any) { return this.http.get<M.Paged<M.License>>(`${this.base}/licenses`, { params: this.params(q) }); }

@@ -107,6 +107,7 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<WinMaster.API.ActivityAuditMiddleware>();
 
 app.MapControllers();
 // Liveness: return 200 as soon as the web server is up so Render marks the deploy healthy.
