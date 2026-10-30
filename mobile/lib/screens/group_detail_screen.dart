@@ -84,12 +84,48 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     }
   }
 
+  Future<void> _addContact() async {
+    final phone = TextEditingController();
+    final name = TextEditingController();
+    final tags = TextEditingController();
+    final save = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Add contact to group', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          const SizedBox(height: 12),
+          TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number', hintText: '+15551234567')),
+          const SizedBox(height: 10),
+          TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
+          const SizedBox(height: 10),
+          TextField(controller: tags, decoration: const InputDecoration(labelText: 'Tags (comma separated)')),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add contact')),
+          const SizedBox(height: 16),
+        ]),
+      ),
+    );
+    if (save != true || phone.text.trim().isEmpty) return;
+    try {
+      await ref.read(apiProvider).post('/api/contact-groups/${widget.groupId}/contacts', body: {
+        'phone': phone.text.trim(), 'name': name.text.trim().isEmpty ? null : name.text.trim(),
+        'customFields': {}, 'tags': tags.text.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList(),
+      });
+      if (mounted) { showOk(context, 'Contact added'); _load(); }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.groupName),
         actions: [
+          IconButton(icon: const Icon(Icons.person_add_alt_1), tooltip: 'Add contact', onPressed: _addContact),
           IconButton(icon: const Icon(Icons.verified_outlined), tooltip: 'Validate numbers', onPressed: _validate),
         ],
       ),

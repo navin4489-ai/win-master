@@ -52,7 +52,7 @@ export class ApiService {
   updateGroup(id: number, b: any) { return this.http.put<M.ContactGroup>(`${this.base}/contact-groups/${id}`, b); }
   deleteGroup(id: number) { return this.http.delete(`${this.base}/contact-groups/${id}`); }
   groupContacts(id: number, q: any) { return this.http.get<M.Paged<M.Contact>>(`${this.base}/contact-groups/${id}/contacts`, { params: this.params(q) }); }
-  addContact(id: number, b: any) { return this.http.post<M.Contact>(`${this.base}/contact-groups/${id}/contacts`, b); }
+  addContact(groupId: number, b: any) { return this.http.post<M.Contact>(`${this.base}/contact-groups/${groupId}/contacts`, b); }
   updateContact(id: number, b: any) { return this.http.put<M.Contact>(`${this.base}/contacts/${id}`, b); }
   deleteContact(id: number) { return this.http.delete(`${this.base}/contacts/${id}`); }
   importContacts(id: number, file: File, columnMapJson?: string) {

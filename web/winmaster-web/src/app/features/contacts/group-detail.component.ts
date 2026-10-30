@@ -14,6 +14,7 @@ import { Contact } from '../../core/models';
   <div class="page-head" style="margin-top:.6rem">
     <h1>Group contacts</h1>
     <div class="row-actions">
+      <button class="btn btn-primary" (click)="openAdd()">+ Add contact</button>
       <label class="btn btn-ghost" style="cursor:pointer" [class.disabled]="importing()">
         @if (importing()) { <span class="spinner"></span> Importing… } @else { Import CSV/XLSX }
         <input type="file" hidden accept=".csv,.xlsx" [disabled]="importing()" (change)="onFile($event)" />
@@ -69,6 +70,18 @@ import { Contact } from '../../core/models';
       </div>
     </div></div>
   }
+
+  @if (showAdd()) {
+    <div class="modal-backdrop" (click)="showAdd.set(false)"><div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-head">Add contact to group</div>
+      <div class="modal-body">
+        <div class="field"><label>Phone number</label><input class="input" [(ngModel)]="addForm.phone" placeholder="+15551234567" /></div>
+        <div class="field"><label>Name</label><input class="input" [(ngModel)]="addForm.name" placeholder="Contact name" /></div>
+        <div class="field"><label>Tags (comma separated)</label><input class="input" [(ngModel)]="addForm.tags" placeholder="lead,priority" /></div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" (click)="showAdd.set(false)">Cancel</button><button class="btn btn-primary" (click)="addContact()" [disabled]="adding()">{{ adding() ? 'Adding…' : 'Add contact' }}</button></div>
+    </div></div>
+  }
   `,
   styles: [`
     .spinner { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
@@ -93,6 +106,19 @@ export class GroupDetailComponent implements OnInit {
   sendTo = signal<Contact | null>(null);
   sendBody = '';
   sending = signal(false);
+  showAdd = signal(false);
+  adding = signal(false);
+  addForm = { phone: '', name: '', tags: '' };
+
+  openAdd() { this.addForm = { phone: '', name: '', tags: '' }; this.showAdd.set(true); }
+  addContact() {
+    if (!this.addForm.phone.trim()) { this.toast.error('Phone number is required'); return; }
+    this.adding.set(true);
+    this.api.addContact(this.id, { phone: this.addForm.phone, name: this.addForm.name || null, customFields: {}, tags: this.addForm.tags ? this.addForm.tags.split(',').map(x => x.trim()).filter(Boolean) : [] }).subscribe({
+      next: () => { this.adding.set(false); this.showAdd.set(false); this.toast.success('Contact added to group'); this.load(); },
+      error: e => { this.adding.set(false); this.toast.error(e?.error?.detail || 'Could not add contact'); }
+    });
+  }
 
   openSend(c: Contact) { this.sendTo.set(c); this.sendBody = ''; }
   doSend() {
