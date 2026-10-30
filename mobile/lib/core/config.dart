@@ -4,7 +4,7 @@ class AppConfig {
   /// API base URL. For a local emulator use 10.0.2.2; for a deployed API use the Render URL.
   static String baseUrl = const String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://win-master.onrender.com',
+    defaultValue: 'https://winmaster.wintechinov.com',
   );
 }
 
