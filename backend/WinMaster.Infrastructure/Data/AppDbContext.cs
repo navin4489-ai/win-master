@@ -32,6 +32,9 @@ public class AppDbContext : DbContext
     public DbSet<PushToken> PushTokens => Set<PushToken>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
+    public DbSet<ChannelAccount> ChannelAccounts => Set<ChannelAccount>();
+    public DbSet<LeadProfile> LeadProfiles => Set<LeadProfile>();
+    public DbSet<LeadEvent> LeadEvents => Set<LeadEvent>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -67,6 +70,10 @@ public class AppDbContext : DbContext
         b.Entity<WebhookEvent>().HasIndex(x => new { x.Provider, x.ExternalId }).IsUnique();
         b.Entity<PushToken>().HasIndex(x => x.Token).IsUnique();
         b.Entity<AppSetting>().HasIndex(x => x.Key).IsUnique();
+        b.Entity<ChannelAccount>().HasIndex(x => new { x.OwnerId, x.Channel, x.ExternalAccountId });
+        b.Entity<LeadProfile>().HasIndex(x => new { x.OwnerId, x.Status });
+        b.Entity<LeadProfile>().HasIndex(x => new { x.OwnerId, x.IsConverted });
+        b.Entity<LeadEvent>().HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
 
         base.OnModelCreating(b);
     }

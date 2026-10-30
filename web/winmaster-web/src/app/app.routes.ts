@@ -22,6 +22,7 @@ export const routes: Routes = [
       { path: 'rules', loadComponent: () => import('./features/rules/rules.component').then(m => m.RulesComponent) },
       { path: 'ai', loadComponent: () => import('./features/ai/ai.component').then(m => m.AiComponent) },
       { path: 'reports', loadComponent: () => import('./features/reports/reports.component').then(m => m.ReportsComponent) },
+      { path: 'omnichannel', loadComponent: () => import('./features/omnichannel/omnichannel.component').then(m => m.OmnichannelComponent) },
       { path: 'licenses', canActivate: [roleGuard('Reseller', 'Admin', 'SuperAdmin')], loadComponent: () => import('./features/licenses/licenses.component').then(m => m.LicensesComponent) },
       { path: 'users', canActivate: [roleGuard('Admin', 'SuperAdmin')], loadComponent: () => import('./features/users/users.component').then(m => m.UsersComponent) },
       { path: 'settings', canActivate: [roleGuard('Admin', 'SuperAdmin')], loadComponent: () => import('./features/settings/settings.component').then(m => m.SettingsComponent) },

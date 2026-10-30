@@ -273,6 +273,10 @@ public class InboxThread : BaseEntity
     public int UnreadCount { get; set; }
     public int? AssignedTo { get; set; }
     public bool IsBotEnabled { get; set; } = true;
+    /// <summary>WhatsApp is the default for existing rows; new channels use this value.</summary>
+    public CommunicationChannel Channel { get; set; } = CommunicationChannel.WhatsApp;
+    public int? ChannelAccountId { get; set; }
+    [MaxLength(200)] public string? ExternalConversationId { get; set; }
     [MaxLength(500)] public string? Preview { get; set; }
 
     public ICollection<InboxMessage> Messages { get; set; } = new List<InboxMessage>();
@@ -289,6 +293,53 @@ public class InboxMessage : BaseEntity
     public MessageStatus? Status { get; set; }
     [MaxLength(200)] public string? WaMessageId { get; set; }
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public CommunicationChannel Channel { get; set; } = CommunicationChannel.WhatsApp;
+}
+
+/// <summary>Connected Facebook, Instagram or email sender configuration.</summary>
+public class ChannelAccount : BaseEntity
+{
+    public int OwnerId { get; set; }
+    public CommunicationChannel Channel { get; set; }
+    [MaxLength(200)] public string DisplayName { get; set; } = "";
+    [MaxLength(200)] public string? ExternalAccountId { get; set; }
+    [MaxLength(500)] public string? EmailAddress { get; set; }
+    [MaxLength(500)] public string? SmtpHost { get; set; }
+    public int? SmtpPort { get; set; }
+    [MaxLength(500)] public string? ImapHost { get; set; }
+    public int? ImapPort { get; set; }
+    /// <summary>Encrypted access token/password/app secret bundle.</summary>
+    public string? CredentialsEnc { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime? LastSyncAt { get; set; }
+}
+
+public class LeadProfile : BaseEntity
+{
+    public int OwnerId { get; set; }
+    public int? ContactId { get; set; }
+    public int? ThreadId { get; set; }
+    [MaxLength(500)] public string DisplayName { get; set; } = "";
+    [MaxLength(500)] public string? Email { get; set; }
+    [MaxLength(60)] public string? Phone { get; set; }
+    public CommunicationChannel Channel { get; set; }
+    public LeadStatus Status { get; set; } = LeadStatus.New;
+    public decimal Score { get; set; }
+    public bool IsConverted { get; set; }
+    public DateTime? ConvertedAt { get; set; }
+    public decimal? ConversionValue { get; set; }
+    public string Tags { get; set; } = "[]";
+    public string AiSummary { get; set; } = "";
+    public string AiSignals { get; set; } = "[]";
+}
+
+public class LeadEvent : BaseEntity
+{
+    public int LeadId { get; set; }
+    public LeadProfile? Lead { get; set; }
+    [MaxLength(100)] public string EventType { get; set; } = "";
+    public string? Details { get; set; }
+    public decimal? Value { get; set; }
 }
 
 public class WebhookEvent : BaseEntity

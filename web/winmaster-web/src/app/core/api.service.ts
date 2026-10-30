@@ -129,4 +129,14 @@ export class ApiService {
   settings() { return this.http.get<any>(`${this.base}/settings`); }
   updateSettings(b: any) { return this.http.put(`${this.base}/settings`, b); }
   auditLogs(q: any) { return this.http.get<M.Paged<M.AuditLog>>(`${this.base}/audit-logs`, { params: this.params(q) }); }
+
+  // Omnichannel: Facebook Messenger, Instagram Direct, Email, unified leads
+  channelAccounts() { return this.http.get<any[]>(`${this.base}/omnichannel/accounts`); }
+  createChannelAccount(b: any) { return this.http.post<any>(`${this.base}/omnichannel/accounts`, b); }
+  deleteChannelAccount(id: number) { return this.http.delete(`${this.base}/omnichannel/accounts/${id}`); }
+  sendChannelMessage(b: any) { return this.http.post<any>(`${this.base}/omnichannel/send`, b); }
+  leads(q: any) { return this.http.get<any>(`${this.base}/omnichannel/leads`, { params: this.params(q) }); }
+  updateLead(id: number, b: any) { return this.http.put<any>(`${this.base}/omnichannel/leads/${id}`, b); }
+  leadAnalytics() { return this.http.get<any>(`${this.base}/omnichannel/lead-analytics`); }
+  analyzeConversation(threadId: number) { return this.http.post<any>(`${this.base}/omnichannel/conversations/${threadId}/analyze`, {}); }
 }

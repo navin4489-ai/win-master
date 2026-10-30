@@ -80,6 +80,7 @@ export class ShellComponent {
     { label: 'Auto-Reply', path: '/rules', icon: '🤖', section: 'Automation' },
     { label: 'AI Chatbot', path: '/ai', icon: '✨' },
     { label: 'Reports', path: '/reports', icon: '📊', section: 'Insights' },
+    { label: 'Omnichannel', path: '/omnichannel', icon: '🌐', section: 'Insights' },
     { label: 'Licenses', path: '/licenses', icon: '🔑', roles: ['Reseller', 'Admin', 'SuperAdmin'], section: 'Administration' },
     { label: 'Users', path: '/users', icon: '🧑‍💼', roles: ['Admin', 'SuperAdmin'] },
     { label: 'Settings', path: '/settings', icon: '⚙', roles: ['Admin', 'SuperAdmin'] },

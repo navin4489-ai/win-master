@@ -4,6 +4,11 @@ public enum UserRole { User = 0, Reseller = 1, Admin = 2, SuperAdmin = 3 }
 
 public enum EngineType { Baileys = 0, CloudApi = 1 }
 
+/// <summary>Additional inbound/outbound business communication channels.</summary>
+public enum CommunicationChannel { WhatsApp = 0, FacebookMessenger = 1, Instagram = 2, Email = 3 }
+
+public enum LeadStatus { New = 0, Qualified = 1, Contacted = 2, Converted = 3, Lost = 4 }
+
 public enum LicenseType { User = 0, Reseller = 1, Admin = 2 }
 
 public enum LicenseStatus { Active = 0, Revoked = 1, Expired = 2 }

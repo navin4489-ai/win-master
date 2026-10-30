@@ -113,6 +113,27 @@ public record AiGenerateResponse(string Message, int TokensUsed, string Model);
 public record AiProviderInfo(string Id, string Name, bool Free, bool NeedsKey, string[] Models, string? SignupUrl);
 public record AiProviderCatalog(List<AiProviderInfo> Providers);
 
+// ---------- Omnichannel / leads ----------
+public record ChannelAccountDto(int Id, string Channel, string DisplayName, string? ExternalAccountId,
+    string? EmailAddress, string? SmtpHost, int? SmtpPort, bool IsActive, DateTime? LastSyncAt);
+public record CreateChannelAccountRequest(string Channel, string DisplayName, string? ExternalAccountId,
+    string? EmailAddress, string? SmtpHost, int? SmtpPort, string? ImapHost, int? ImapPort,
+    string? AccessToken, string? Username, string? Password, bool IsActive);
+public record SendChannelMessageRequest(int? AccountId, string Channel, string Recipient, string Body,
+    string? Subject, string? ThreadId);
+public record ChannelWebhookRequest(string Channel, string ExternalAccountId, string Sender,
+    string Body, string? Subject, string? ExternalMessageId, DateTime? Timestamp);
+public record LeadDto(int Id, string DisplayName, string? Email, string? Phone, string Channel,
+    string Status, decimal Score, bool IsConverted, DateTime? ConvertedAt, decimal? ConversionValue,
+    string AiSummary, DateTime CreatedAt);
+public record UpdateLeadRequest(string Status, bool? IsConverted, decimal? ConversionValue, string[]? Tags);
+public record LeadAnalytics(int TotalLeads, int NewLeads, int QualifiedLeads, int ConvertedLeads,
+    int LostLeads, decimal ConversionRate, decimal TotalConversionValue,
+    List<ChannelAnalytics> ByChannel, List<LeadDto> RecentConversions);
+public record ChannelAnalytics(string Channel, int Leads, int Converted, decimal ConversionRate, decimal Value);
+public record AiConversationAnalysis(string Summary, string[] IntentSignals, string RecommendedNextAction,
+    decimal LeadScore, string SuggestedStatus);
+
 // ---------- Inbox ----------
 public record InboxThreadDto(int Id, int AccountId, string AccountLabel, string ContactPhone, string ContactPhoneMasked,
     string? ContactName, DateTime LastMessageAt, int UnreadCount, bool IsBotEnabled, string? Preview);

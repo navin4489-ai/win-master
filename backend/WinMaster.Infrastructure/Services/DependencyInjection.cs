@@ -52,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<AntiBanService>();
         services.AddScoped<RuleService>();
         services.AddScoped<AiService>();
+        services.AddScoped<OmnichannelService>();
         services.AddScoped<InboxService>();
         services.AddScoped<ReportService>();
         services.AddScoped<SettingsService>();
