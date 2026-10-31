@@ -278,7 +278,20 @@ public class LeadDiscoveryService
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            var response = await client.PostAsync(url, content, ct);
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.PostAsync(url, content, ct);
+            }
+            catch (HttpRequestException) when (attempt < 2)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1 + attempt * 2), ct);
+                continue;
+            }
+            catch (HttpRequestException)
+            {
+                return null;
+            }
             if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests) return response;
             response.Dispose();
             if (attempt == 2) return null;
