@@ -77,14 +77,15 @@ public class LeadDiscoveryService
         var client = _http.CreateClient("lead-discovery");
         client.DefaultRequestHeaders.UserAgent.ParseAdd("WinMasterLeadDiscovery/1.0 contact-admin");
         var geoUrl = $"https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q={Uri.EscapeDataString(req.Pincode + ", India")}";
-        var geo = await client.GetFromJsonAsync<JsonElement[]>(geoUrl, ct) ?? Array.Empty<JsonElement>();
+        var geo = await GetJsonWithRetryAsync<JsonElement[]>(client, geoUrl, ct) ?? Array.Empty<JsonElement>();
         if (geo.Length == 0) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
         var lat = Get(geo[0], "lat"); var lon = Get(geo[0], "lon");
         if (lat is null || lon is null) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
         var overpass = $"[out:json][timeout:20];(nwr[\"name\"][\"phone\"](around:8000,{lat},{lon});nwr[\"name\"][\"contact:phone\"](around:8000,{lat},{lon}););out center tags;";
         using var content = new StringContent(overpass, System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
-        using var response = await client.PostAsync("https://overpass-api.de/api/interpreter", content, ct);
-        if (!response.IsSuccessStatusCode) return new LeadSearchResponse("OpenStreetMap", query, new(), "Free public listing provider is temporarily unavailable.");
+        using var response = await PostWithRetryAsync(client, "https://overpass-api.de/api/interpreter", content, ct);
+        if (response is null || !response.IsSuccessStatusCode)
+            return new LeadSearchResponse("OpenStreetMap", query, new(), "The free public listing provider is rate-limited or temporarily unavailable. Please wait a minute and try again.");
         var data = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         var results = new List<LeadSearchResultDto>();
         if (data.TryGetProperty("elements", out var elements))
@@ -133,7 +134,8 @@ public class LeadDiscoveryService
     private async Task<Dictionary<string, string>?> GetDetailsAsync(HttpClient client, string key, string placeId, CancellationToken ct)
     {
         var url = $"https://maps.googleapis.com/maps/api/place/details/json?place_id={Uri.EscapeDataString(placeId)}&fields=name,formatted_phone_number,international_phone_number&key={Uri.EscapeDataString(key)}";
-        var response = await client.GetFromJsonAsync<JsonElement>(url, ct);
+        var response = await GetJsonWithRetryAsync<JsonElement>(client, url, ct);
+        if (response.ValueKind == JsonValueKind.Undefined) return null;
         if (!response.TryGetProperty("result", out var result)) return null;
         var dict = new Dictionary<string, string>();
         foreach (var name in new[] { "formatted_phone_number", "international_phone_number" })
@@ -166,5 +168,35 @@ public class LeadDiscoveryService
             JsonValueKind.Number => value.ToString(),
             _ => null
         };
+    }
+
+    private static async Task<T?> GetJsonWithRetryAsync<T>(HttpClient client, string url, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            using var response = await client.GetAsync(url, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                if (attempt == 2) throw new BusinessException("The public listing provider is rate-limiting requests. Please wait a minute and try again.");
+                await Task.Delay(TimeSpan.FromSeconds(1 + attempt * 2), ct);
+                continue;
+            }
+            if (!response.IsSuccessStatusCode) throw new BusinessException($"Lead provider returned {(int)response.StatusCode}.");
+            return await response.Content.ReadFromJsonAsync<T>(cancellationToken: ct);
+        }
+        return default;
+    }
+
+    private static async Task<HttpResponseMessage?> PostWithRetryAsync(HttpClient client, string url, HttpContent content, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var response = await client.PostAsync(url, content, ct);
+            if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests) return response;
+            response.Dispose();
+            if (attempt == 2) return null;
+            await Task.Delay(TimeSpan.FromSeconds(1 + attempt * 2), ct);
+        }
+        return null;
     }
 }
