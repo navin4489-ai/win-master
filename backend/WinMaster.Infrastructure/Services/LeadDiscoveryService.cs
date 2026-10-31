@@ -45,9 +45,20 @@ public class LeadDiscoveryService
         try
         {
             LeadSearchResponse response;
-            if (!string.IsNullOrWhiteSpace(webKey)) response = await SearchBraveAsync(query, req, webKey, ct);
-            else if (string.IsNullOrWhiteSpace(apiKey)) response = await SearchOpenStreetMapAsync(query, req, ct);
-            else response = await SearchGoogleAsync(query, req, apiKey, ct);
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(webKey)) response = await SearchBraveAsync(query, req, webKey, ct);
+                else if (string.IsNullOrWhiteSpace(apiKey)) response = await SearchOpenStreetMapAsync(query, req, ct);
+                else response = await SearchGoogleAsync(query, req, apiKey, ct);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                response = new LeadSearchResponse("OpenStreetMap", query, new(), "The free search provider timed out. Please try again with a broader business type or PIN code.");
+            }
+            catch (HttpRequestException)
+            {
+                response = new LeadSearchResponse("OpenStreetMap", query, new(), "The free search provider is temporarily unavailable. Please try again shortly.");
+            }
             Cache[cacheKey] = (DateTime.UtcNow.AddMinutes(10), response);
             return response;
         }
@@ -58,6 +69,7 @@ public class LeadDiscoveryService
     {
 
         var client = _http.CreateClient("lead-discovery");
+        client.Timeout = TimeSpan.FromSeconds(20);
         var searchUrl = $"https://maps.googleapis.com/maps/api/place/textsearch/json?query={Uri.EscapeDataString(query)}&key={Uri.EscapeDataString(apiKey)}";
         using var search = await client.GetAsync(searchUrl, ct);
         var searchJson = await search.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
@@ -95,6 +107,7 @@ public class LeadDiscoveryService
     private async Task<LeadSearchResponse> SearchBraveAsync(string query, LeadSearchRequest req, string apiKey, CancellationToken ct)
     {
         var client = _http.CreateClient("lead-discovery");
+        client.Timeout = TimeSpan.FromSeconds(20);
         using var request = new HttpRequestMessage(HttpMethod.Get,
             $"https://api.search.brave.com/res/v1/web/search?q={Uri.EscapeDataString(query)}&count={Math.Min(req.LeadCount * 2, 50)}&country=IN");
         request.Headers.Add("X-Subscription-Token", apiKey);
@@ -124,6 +137,7 @@ public class LeadDiscoveryService
     private async Task<LeadSearchResponse> SearchOpenStreetMapAsync(string query, LeadSearchRequest req, CancellationToken ct)
     {
         var client = _http.CreateClient("lead-discovery");
+        client.Timeout = TimeSpan.FromSeconds(20);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("WinMasterLeadDiscovery/1.0 contact-admin");
         // Photon is a free geocoder with a less restrictive public endpoint than
         // Nominatim. Nominatim remains a fallback for compatibility.
