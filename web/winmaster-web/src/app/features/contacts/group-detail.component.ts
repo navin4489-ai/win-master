@@ -15,6 +15,7 @@ import { Contact } from '../../core/models';
     <h1>Group contacts</h1>
     <div class="row-actions">
       <button class="btn btn-primary" (click)="openAdd()">+ Add contact</button>
+      <button class="btn btn-primary" (click)="openLeadSearch()">✨ Lead by AI</button>
       <label class="btn btn-ghost" style="cursor:pointer" [class.disabled]="importing()">
         @if (importing()) { <span class="spinner"></span> Importing… } @else { Import CSV/XLSX }
         <input type="file" hidden accept=".csv,.xlsx" [disabled]="importing()" (change)="onFile($event)" />
@@ -82,6 +83,29 @@ import { Contact } from '../../core/models';
       <div class="modal-foot"><button class="btn btn-ghost" (click)="showAdd.set(false)">Cancel</button><button class="btn btn-primary" (click)="addContact()" [disabled]="adding()">{{ adding() ? 'Adding…' : 'Add contact' }}</button></div>
     </div></div>
   }
+
+  @if (showLeadSearch()) {
+    <div class="modal-backdrop" (click)="showLeadSearch.set(false)"><div class="modal" style="max-width:900px" (click)="$event.stopPropagation()">
+      <div class="modal-head">Lead by AI</div>
+      <div class="modal-body">
+        <p class="muted" style="margin-top:0">Find public business listings near an Indian PIN code. Results are reviewed before import; phone numbers are never invented.</p>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:.7rem">
+          <div class="field"><label>PIN code</label><input class="input" [(ngModel)]="leadForm.pincode" placeholder="400001" /></div>
+          <div class="field"><label>Number of leads</label><input class="input" type="number" min="1" max="100" [(ngModel)]="leadForm.leadCount" /></div>
+          <div class="field"><label>Business type</label><select class="input" [(ngModel)]="leadForm.businessType">@for (t of businessTypes; track t) { <option [value]="t">{{ t }}</option> }</select></div>
+          <div class="field"><label>Optional keyword</label><input class="input" [(ngModel)]="leadForm.keyword" placeholder="family clinic" /></div>
+        </div>
+        <button class="btn btn-primary" (click)="searchLeads()" [disabled]="leadSearching()">{{ leadSearching() ? 'Searching…' : 'Search public listings' }}</button>
+        @if (leadMessage()) { <div class="card card-pad" style="margin-top:1rem;background:var(--panel-2)">{{ leadMessage() }}</div> }
+        @if (leadResults().length) {
+          <div class="table-wrap" style="margin-top:1rem;overflow:auto"><table class="table"><thead><tr><th><input type="checkbox" [checked]="allSelected()" (change)="toggleAll($event)" /></th><th>Business / Owner</th><th>Phone</th><th>Address</th><th>Source</th></tr></thead><tbody>
+            @for (l of leadResults(); track l.externalId) { <tr><td><input type="checkbox" [(ngModel)]="l.selected" /></td><td><b>{{ l.businessName }}</b>@if (l.ownerName) { <div class="muted">{{ l.ownerName }}</div> }</td><td>{{ l.phone }}</td><td>{{ l.address }}</td><td>{{ l.source }} · {{ l.confidence }}</td></tr> }
+          </tbody></table></div>
+        }
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" (click)="showLeadSearch.set(false)">Close</button><button class="btn btn-primary" (click)="importLeads()" [disabled]="!selectedLeads().length || importingLeads()">{{ importingLeads() ? 'Adding…' : 'Add selected contacts' }}</button></div>
+    </div></div>
+  }
   `,
   styles: [`
     .spinner { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;
@@ -109,6 +133,20 @@ export class GroupDetailComponent implements OnInit {
   showAdd = signal(false);
   adding = signal(false);
   addForm = { phone: '', name: '', tags: '' };
+  showLeadSearch = signal(false);
+  leadSearching = signal(false);
+  importingLeads = signal(false);
+  leadMessage = signal('');
+  leadResults = signal<any[]>([]);
+  leadForm: any = { pincode: '', leadCount: 25, businessType: 'Other', keyword: '', countryCode: '+91' };
+  businessTypes = ['Other', 'Restaurant', 'Dentist', 'Doctor / Clinic', 'Pharmacy', 'Grocery Store', 'Salon / Beauty', 'Gym / Fitness', 'Real Estate', 'Travel Agency', 'Hotel', 'School / Coaching', 'Lawyer', 'CA / Accounting', 'Auto Service', 'Clothing Store', 'Electronics Store', 'Furniture Store', 'Wedding Services', 'Digital Marketing Agency'];
+
+  openLeadSearch() { this.leadForm = { pincode: '', leadCount: 25, businessType: 'Other', keyword: '', countryCode: '+91' }; this.leadResults.set([]); this.leadMessage.set(''); this.showLeadSearch.set(true); }
+  searchLeads() { this.leadSearching.set(true); this.leadMessage.set(''); this.api.searchLeads(this.id, this.leadForm).subscribe({ next: r => { this.leadSearching.set(false); this.leadResults.set(r.results || []); this.leadMessage.set(r.message || (r.results?.length ? `Found ${r.results.length} public listings. Review and select contacts to add.` : 'No results.')); }, error: e => { this.leadSearching.set(false); this.leadMessage.set(e?.error?.detail || 'Lead search failed'); } }); }
+  selectedLeads() { return this.leadResults().filter(x => x.selected); }
+  allSelected() { return this.leadResults().length > 0 && this.selectedLeads().length === this.leadResults().length; }
+  toggleAll(e: Event) { const checked = (e.target as HTMLInputElement).checked; this.leadResults.update(xs => xs.map(x => ({ ...x, selected: checked }))); }
+  importLeads() { this.importingLeads.set(true); this.api.importLeads(this.id, this.selectedLeads()).subscribe({ next: r => { this.importingLeads.set(false); this.toast.success(`Added ${r.imported} contacts; ${r.duplicates} duplicates skipped`); this.showLeadSearch.set(false); this.load(); }, error: e => { this.importingLeads.set(false); this.toast.error(e?.error?.detail || 'Could not add leads'); } }); }
 
   openAdd() { this.addForm = { phone: '', name: '', tags: '' }; this.showAdd.set(true); }
   addContact() {

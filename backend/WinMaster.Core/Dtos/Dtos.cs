@@ -134,6 +134,14 @@ public record ChannelAnalytics(string Channel, int Leads, int Converted, decimal
 public record AiConversationAnalysis(string Summary, string[] IntentSignals, string RecommendedNextAction,
     decimal LeadScore, string SuggestedStatus);
 
+// ---------- AI lead discovery ----------
+public record LeadSearchRequest(string Pincode, int LeadCount, string BusinessType, string? Keyword, string? CountryCode);
+public record LeadSearchResultDto(string ExternalId, string BusinessName, string? OwnerName, string Phone,
+    string? Address, string Source, string? SourceUrl, decimal Confidence, bool Selected);
+public record LeadSearchResponse(string Provider, string Query, List<LeadSearchResultDto> Results, string? Message);
+public record LeadImportRequest(List<LeadSearchResultDto> Leads);
+public record LeadImportResult(int Imported, int Duplicates, int Invalid, List<string> Errors);
+
 // ---------- Inbox ----------
 public record InboxThreadDto(int Id, int AccountId, string AccountLabel, string ContactPhone, string ContactPhoneMasked,
     string? ContactName, DateTime LastMessageAt, int UnreadCount, bool IsBotEnabled, string? Preview);

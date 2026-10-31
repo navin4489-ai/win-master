@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddDataProtection();
         services.AddHttpClient("bridge");
         services.AddHttpClient("ai");
+        services.AddHttpClient("lead-discovery");
         services.AddHttpClient("meta", c => c.BaseAddress = new Uri("https://graph.facebook.com/v20.0/"))
             .AddStandardResilienceHandler();
 
@@ -53,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<RuleService>();
         services.AddScoped<AiService>();
         services.AddScoped<OmnichannelService>();
+        services.AddScoped<LeadDiscoveryService>();
         services.AddScoped<InboxService>();
         services.AddScoped<ReportService>();
         services.AddScoped<SettingsService>();

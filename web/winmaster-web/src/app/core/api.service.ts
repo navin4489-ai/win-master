@@ -63,6 +63,8 @@ export class ApiService {
   }
   validatePhones(phones: string[]) { return this.http.post<M.ValidateResult[]>(`${this.base}/contact-groups/validate`, { phones }); }
   exportGroup(id: number, format: string) { return this.http.get(`${this.base}/contact-groups/${id}/export`, { params: this.params({ format }), responseType: 'blob' }); }
+  searchLeads(groupId: number, b: any) { return this.http.post<any>(`${this.base}/contact-groups/${groupId}/lead-search`, b); }
+  importLeads(groupId: number, leads: any[]) { return this.http.post<any>(`${this.base}/contact-groups/${groupId}/lead-search/import`, { leads }); }
   scrapeGroup(id: number, b: any) { return this.http.post<any>(`${this.base}/contact-groups/${id}/scrape`, b); }
 
   // Tags
