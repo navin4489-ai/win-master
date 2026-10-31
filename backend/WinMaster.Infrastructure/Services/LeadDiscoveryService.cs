@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using WinMaster.Core;
@@ -16,6 +18,8 @@ namespace WinMaster.Infrastructure.Services;
 /// </summary>
 public class LeadDiscoveryService
 {
+    private static readonly ConcurrentDictionary<string, (DateTime Expires, LeadSearchResponse Response)> Cache = new();
+    private static readonly SemaphoreSlim SearchGate = new(2, 2);
     private readonly AppDbContext _db;
     private readonly IHttpClientFactory _http;
     private readonly IConfiguration _config;
@@ -30,14 +34,28 @@ public class LeadDiscoveryService
         if (req.LeadCount is < 1 or > 100) throw new BusinessException("Lead count must be between 1 and 100.");
         if (string.IsNullOrWhiteSpace(req.BusinessType)) throw new BusinessException("Select a business type.");
 
-        var apiKey = _config["LeadDiscovery:ApiKey"] ?? Environment.GetEnvironmentVariable("LEAD_DISCOVERY_API_KEY");
         var query = string.IsNullOrWhiteSpace(req.Keyword)
             ? $"{req.BusinessType} near {req.Pincode}, India"
             : $"{req.Keyword} {req.BusinessType} near {req.Pincode}, India";
-        // Google Places is preferred when configured. Without a paid-provider key,
-        // use the free OpenStreetMap/Nominatim/Overpass public-data fallback.
-        if (string.IsNullOrWhiteSpace(apiKey))
-            return await SearchOpenStreetMapAsync(query, req, ct);
+        var cacheKey = $"{req.Pincode}|{req.LeadCount}|{req.BusinessType}|{req.Keyword}".ToLowerInvariant();
+        if (Cache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTime.UtcNow) return cached.Response;
+        var apiKey = _config["LeadDiscovery:ApiKey"] ?? Environment.GetEnvironmentVariable("LEAD_DISCOVERY_API_KEY");
+        var webKey = _config["LeadDiscovery:WebSearchApiKey"] ?? Environment.GetEnvironmentVariable("LEAD_WEB_SEARCH_API_KEY");
+        await SearchGate.WaitAsync(ct);
+        try
+        {
+            LeadSearchResponse response;
+            if (!string.IsNullOrWhiteSpace(webKey)) response = await SearchBraveAsync(query, req, webKey, ct);
+            else if (string.IsNullOrWhiteSpace(apiKey)) response = await SearchOpenStreetMapAsync(query, req, ct);
+            else response = await SearchGoogleAsync(query, req, apiKey, ct);
+            Cache[cacheKey] = (DateTime.UtcNow.AddMinutes(10), response);
+            return response;
+        }
+        finally { SearchGate.Release(); }
+    }
+
+    private async Task<LeadSearchResponse> SearchGoogleAsync(string query, LeadSearchRequest req, string apiKey, CancellationToken ct)
+    {
 
         var client = _http.CreateClient("lead-discovery");
         var searchUrl = $"https://maps.googleapis.com/maps/api/place/textsearch/json?query={Uri.EscapeDataString(query)}&key={Uri.EscapeDataString(apiKey)}";
@@ -70,6 +88,37 @@ public class LeadDiscoveryService
             }
         }
         return new LeadSearchResponse("GooglePlaces", query, results, results.Count == 0 ? "No public phone numbers were returned for this search." : null);
+    }
+
+    /// <summary>Optional Brave Web Search free-tier integration. It only accepts
+    /// phone numbers explicitly present in public result snippets.</summary>
+    private async Task<LeadSearchResponse> SearchBraveAsync(string query, LeadSearchRequest req, string apiKey, CancellationToken ct)
+    {
+        var client = _http.CreateClient("lead-discovery");
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"https://api.search.brave.com/res/v1/web/search?q={Uri.EscapeDataString(query)}&count={Math.Min(req.LeadCount * 2, 50)}&country=IN");
+        request.Headers.Add("X-Subscription-Token", apiKey);
+        request.Headers.Add("Accept", "application/json");
+        using var response = await SendWithRetryAsync(client, request, ct);
+        if (response is null || !response.IsSuccessStatusCode)
+            return new LeadSearchResponse("BraveSearch", query, new(), "Web search is temporarily rate-limited. Please try again shortly.");
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        var results = new List<LeadSearchResultDto>();
+        if (json.TryGetProperty("web", out var web) && web.TryGetProperty("results", out var rows))
+        {
+            foreach (var row in rows.EnumerateArray())
+            {
+                var title = Get(row, "title") ?? "Business listing";
+                var description = Get(row, "description") ?? "";
+                var phone = NormalizeIndiaPhone(ExtractPhone(description));
+                if (phone is null) continue;
+                results.Add(new LeadSearchResultDto(Get(row, "url") ?? Guid.NewGuid().ToString("N"), title, null, phone, description,
+                    "Brave Web Search", Get(row, "url"), .55m, true));
+                if (results.Count >= req.LeadCount) break;
+            }
+        }
+        return new LeadSearchResponse("BraveSearch", query, results,
+            results.Count == 0 ? "Web results did not contain public phone numbers. Try a broader search." : null);
     }
 
     private async Task<LeadSearchResponse> SearchOpenStreetMapAsync(string query, LeadSearchRequest req, CancellationToken ct)
@@ -168,6 +217,27 @@ public class LeadDiscoveryService
             JsonValueKind.Number => value.ToString(),
             _ => null
         };
+    }
+
+    private static string? ExtractPhone(string text)
+    {
+        var m = Regex.Match(text, @"(?:\+?91[\s-]?)?[6-9]\d{9}");
+        return m.Success ? m.Value : null;
+    }
+
+    private static async Task<HttpResponseMessage?> SendWithRetryAsync(HttpClient client, HttpRequestMessage request, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            // Recreate the request because HttpRequestMessage cannot be sent twice.
+            using var current = new HttpRequestMessage(request.Method, request.RequestUri);
+            foreach (var header in request.Headers) current.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            var response = await client.SendAsync(current, ct);
+            if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests) return response;
+            response.Dispose();
+            if (attempt < 2) await Task.Delay(TimeSpan.FromSeconds(1 + attempt * 2), ct);
+        }
+        return null;
     }
 
     private static async Task<T?> GetJsonWithRetryAsync<T>(HttpClient client, string url, CancellationToken ct)
