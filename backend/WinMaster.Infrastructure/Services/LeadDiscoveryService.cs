@@ -125,14 +125,31 @@ public class LeadDiscoveryService
     {
         var client = _http.CreateClient("lead-discovery");
         client.DefaultRequestHeaders.UserAgent.ParseAdd("WinMasterLeadDiscovery/1.0 contact-admin");
-        var geoUrl = $"https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q={Uri.EscapeDataString(req.Pincode + ", India")}";
-        var geo = await GetJsonWithRetryAsync<JsonElement[]>(client, geoUrl, ct) ?? Array.Empty<JsonElement>();
-        if (geo.Length == 0) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
-        var lat = Get(geo[0], "lat"); var lon = Get(geo[0], "lon");
+        // Photon is a free geocoder with a less restrictive public endpoint than
+        // Nominatim. Nominatim remains a fallback for compatibility.
+        string? lat = null; string? lon = null;
+        try
+        {
+            var photonUrl = $"https://photon.komoot.io/api/?q={Uri.EscapeDataString(req.Pincode + ", India")}&limit=1";
+            var photon = await GetJsonWithRetryAsync<JsonElement>(client, photonUrl, ct);
+            if (photon.ValueKind == JsonValueKind.Object && photon.TryGetProperty("features", out var features) && features.GetArrayLength() > 0)
+            {
+                var coords = features[0].GetProperty("geometry").GetProperty("coordinates");
+                lon = coords[0].ToString(); lat = coords[1].ToString();
+            }
+        }
+        catch (BusinessException) { /* use Nominatim fallback */ }
+        if (lat is null || lon is null)
+        {
+            var geoUrl = $"https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q={Uri.EscapeDataString(req.Pincode + ", India")}";
+            var geo = await GetJsonWithRetryAsync<JsonElement[]>(client, geoUrl, ct) ?? Array.Empty<JsonElement>();
+            if (geo.Length == 0) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
+            lat = Get(geo[0], "lat"); lon = Get(geo[0], "lon");
+        }
         if (lat is null || lon is null) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
         var overpass = $"[out:json][timeout:20];(nwr[\"name\"][\"phone\"](around:8000,{lat},{lon});nwr[\"name\"][\"contact:phone\"](around:8000,{lat},{lon}););out center tags;";
         using var content = new StringContent(overpass, System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
-        using var response = await PostWithRetryAsync(client, "https://overpass-api.de/api/interpreter", content, ct);
+        using var response = await PostOverpassWithMirrorsAsync(client, content, ct);
         if (response is null || !response.IsSuccessStatusCode)
             return new LeadSearchResponse("OpenStreetMap", query, new(), "The free public listing provider is rate-limited or temporarily unavailable. Please wait a minute and try again.");
         var data = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
@@ -266,6 +283,23 @@ public class LeadDiscoveryService
             response.Dispose();
             if (attempt == 2) return null;
             await Task.Delay(TimeSpan.FromSeconds(1 + attempt * 2), ct);
+        }
+        return null;
+    }
+
+    private static async Task<HttpResponseMessage?> PostOverpassWithMirrorsAsync(HttpClient client, HttpContent content, CancellationToken ct)
+    {
+        var mirrors = new[]
+        {
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter"
+        };
+        foreach (var mirror in mirrors)
+        {
+            var response = await PostWithRetryAsync(client, mirror, content, ct);
+            if (response is not null && response.IsSuccessStatusCode) return response;
+            response?.Dispose();
         }
         return null;
     }
