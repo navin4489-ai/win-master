@@ -137,54 +137,13 @@ public class LeadDiscoveryService
     private async Task<LeadSearchResponse> SearchOpenStreetMapAsync(string query, LeadSearchRequest req, CancellationToken ct)
     {
         var client = _http.CreateClient("lead-discovery");
-        client.Timeout = TimeSpan.FromSeconds(20);
+        client.Timeout = TimeSpan.FromSeconds(15);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("WinMasterLeadDiscovery/1.0 contact-admin");
-        // Photon is a free geocoder with a less restrictive public endpoint than
-        // Nominatim. Nominatim remains a fallback for compatibility.
-        string? lat = null; string? lon = null;
-        try
-        {
-            var photonUrl = $"https://photon.komoot.io/api/?q={Uri.EscapeDataString(req.Pincode + ", India")}&limit=1";
-            var photon = await GetJsonWithRetryAsync<JsonElement>(client, photonUrl, ct);
-            if (photon.ValueKind == JsonValueKind.Object && photon.TryGetProperty("features", out var features) && features.GetArrayLength() > 0)
-            {
-                var coords = features[0].GetProperty("geometry").GetProperty("coordinates");
-                lon = coords[0].ToString(); lat = coords[1].ToString();
-            }
-        }
-        catch (BusinessException) { /* use Nominatim fallback */ }
-        if (lat is null || lon is null)
-        {
-            var geoUrl = $"https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q={Uri.EscapeDataString(req.Pincode + ", India")}";
-            var geo = await GetJsonWithRetryAsync<JsonElement[]>(client, geoUrl, ct) ?? Array.Empty<JsonElement>();
-            if (geo.Length == 0) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
-            lat = Get(geo[0], "lat"); lon = Get(geo[0], "lon");
-        }
-        if (lat is null || lon is null) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
-        var overpass = $"[out:json][timeout:20];(nwr[\"name\"][\"phone\"](around:8000,{lat},{lon});nwr[\"name\"][\"contact:phone\"](around:8000,{lat},{lon}););out center tags;";
-        using var content = new StringContent(overpass, System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
-        using var response = await PostOverpassWithMirrorsAsync(client, content, ct);
-        if (response is null || !response.IsSuccessStatusCode)
-            return await SearchNominatimListingsAsync(query, req, client, ct);
-        var data = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        var results = new List<LeadSearchResultDto>();
-        if (data.TryGetProperty("elements", out var elements))
-        {
-            foreach (var e in elements.EnumerateArray())
-            {
-                if (!e.TryGetProperty("tags", out var t)) continue;
-                var name = Get(t, "name");
-                var phone = NormalizeIndiaPhone(Get(t, "phone") ?? Get(t, "contact:phone"));
-                if (string.IsNullOrWhiteSpace(name) || phone is null) continue;
-                var address = Get(t, "addr:street") ?? Get(t, "addr:full");
-                results.Add(new LeadSearchResultDto(
-                    Get(e, "id") ?? Guid.NewGuid().ToString("N"), name, null, phone, address,
-                    "OpenStreetMap", "https://www.openstreetmap.org/", .65m, true));
-                if (results.Count >= req.LeadCount) break;
-            }
-        }
-        return new LeadSearchResponse("OpenStreetMap", query, results,
-            results.Count == 0 ? "No public phone numbers were found. Try a broader business type or PIN code." : null);
+
+        // Fast no-key path. Query direct public OSM listings first and avoid
+        // blocking the user on slow/rate-limited Overpass mirrors.
+        var direct = await SearchNominatimListingsAsync(query, req, client, ct);
+        return direct;
     }
 
     /// <summary>Fast no-key fallback. Nominatim search can return OSM business objects
@@ -360,3 +319,5 @@ public class LeadDiscoveryService
         return null;
     }
 }
+
+
