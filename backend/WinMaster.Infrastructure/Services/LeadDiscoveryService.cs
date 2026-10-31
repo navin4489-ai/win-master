@@ -165,7 +165,7 @@ public class LeadDiscoveryService
         using var content = new StringContent(overpass, System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
         using var response = await PostOverpassWithMirrorsAsync(client, content, ct);
         if (response is null || !response.IsSuccessStatusCode)
-            return new LeadSearchResponse("OpenStreetMap", query, new(), "The free public listing provider is rate-limited or temporarily unavailable. Please wait a minute and try again.");
+            return await SearchNominatimListingsAsync(query, req, client, ct);
         var data = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         var results = new List<LeadSearchResultDto>();
         if (data.TryGetProperty("elements", out var elements))
@@ -185,6 +185,35 @@ public class LeadDiscoveryService
         }
         return new LeadSearchResponse("OpenStreetMap", query, results,
             results.Count == 0 ? "No public phone numbers were found. Try a broader business type or PIN code." : null);
+    }
+
+    /// <summary>Fast no-key fallback. Nominatim search can return OSM business objects
+    /// with public phone tags without requiring an Overpass query.</summary>
+    private async Task<LeadSearchResponse> SearchNominatimListingsAsync(string query, LeadSearchRequest req, HttpClient client, CancellationToken ct)
+    {
+        var url = $"https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&namedetails=1&limit={Math.Min(req.LeadCount * 3, 50)}&countrycodes=in&q={Uri.EscapeDataString(query)}";
+        try
+        {
+            var rows = await GetJsonWithRetryAsync<JsonElement[]>(client, url, ct) ?? Array.Empty<JsonElement>();
+            var results = new List<LeadSearchResultDto>();
+            foreach (var row in rows)
+            {
+                var tags = row.TryGetProperty("extratags", out var extra) ? extra : default;
+                var phone = NormalizeIndiaPhone(
+                    Get(tags, "phone") ?? Get(tags, "contact:phone") ?? Get(row, "phone"));
+                if (phone is null) continue;
+                var name = Get(row, "name") ?? Get(row, "display_name") ?? "Business listing";
+                results.Add(new LeadSearchResultDto(Get(row, "osm_id") ?? Guid.NewGuid().ToString("N"), name, null, phone,
+                    Get(row, "display_name"), "OpenStreetMap Nominatim", "https://www.openstreetmap.org/", .6m, true));
+                if (results.Count >= req.LeadCount) break;
+            }
+            return new LeadSearchResponse("OpenStreetMap Nominatim", query, results,
+                results.Count == 0 ? "No public phone numbers were found for this search." : null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or BusinessException or OperationCanceledException)
+        {
+            return new LeadSearchResponse("OpenStreetMap", query, new(), "Free public search is temporarily unavailable. Try again shortly or use a broader search.");
+        }
     }
 
     public async Task<LeadImportResult> ImportAsync(int ownerId, int groupId, LeadImportRequest req)
