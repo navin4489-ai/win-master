@@ -41,13 +41,17 @@ public class LeadDiscoveryService
         if (Cache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTime.UtcNow) return cached.Response;
         var apiKey = _config["LeadDiscovery:ApiKey"] ?? Environment.GetEnvironmentVariable("LEAD_DISCOVERY_API_KEY");
         var webKey = _config["LeadDiscovery:WebSearchApiKey"] ?? Environment.GetEnvironmentVariable("LEAD_WEB_SEARCH_API_KEY");
+        var tavilyKey = _config["LeadDiscovery:TavilyApiKey"] ?? Environment.GetEnvironmentVariable("TAVILY_API_KEY");
+        var exaKey = _config["LeadDiscovery:ExaApiKey"] ?? Environment.GetEnvironmentVariable("EXA_API_KEY");
         await SearchGate.WaitAsync(ct);
         try
         {
             LeadSearchResponse response;
             try
             {
-                if (!string.IsNullOrWhiteSpace(webKey)) response = await SearchBraveAsync(query, req, webKey, ct);
+                if (!string.IsNullOrWhiteSpace(tavilyKey)) response = await SearchTavilyAsync(query, req, tavilyKey, ct);
+                else if (!string.IsNullOrWhiteSpace(exaKey)) response = await SearchExaAsync(query, req, exaKey, ct);
+                else if (!string.IsNullOrWhiteSpace(webKey)) response = await SearchBraveAsync(query, req, webKey, ct);
                 else if (string.IsNullOrWhiteSpace(apiKey)) response = await SearchOpenStreetMapAsync(query, req, ct);
                 else response = await SearchGoogleAsync(query, req, apiKey, ct);
             }
@@ -100,6 +104,66 @@ public class LeadDiscoveryService
             }
         }
         return new LeadSearchResponse("GooglePlaces", query, results, results.Count == 0 ? "No public phone numbers were returned for this search." : null);
+    }
+
+    private async Task<LeadSearchResponse> SearchTavilyAsync(string query, LeadSearchRequest req, string apiKey, CancellationToken ct)
+    {
+        var client = _http.CreateClient("lead-discovery");
+        client.Timeout = TimeSpan.FromSeconds(20);
+        var response = await client.PostAsJsonAsync("https://api.tavily.com/search", new
+        {
+            api_key = apiKey,
+            query,
+            search_depth = "basic",
+            max_results = Math.Min(req.LeadCount * 3, 30),
+            include_answer = false,
+            include_raw_content = false
+        }, ct);
+        if (!response.IsSuccessStatusCode)
+            return new LeadSearchResponse("Tavily", query, new(), $"Tavily returned {(int)response.StatusCode}. Check the free-tier key or wait and retry.");
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        return MapWebResults("Tavily", query, req, json, "results");
+    }
+
+    private async Task<LeadSearchResponse> SearchExaAsync(string query, LeadSearchRequest req, string apiKey, CancellationToken ct)
+    {
+        var client = _http.CreateClient("lead-discovery");
+        client.Timeout = TimeSpan.FromSeconds(20);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.exa.ai/search");
+        request.Headers.Add("x-api-key", apiKey);
+        request.Content = JsonContent.Create(new
+        {
+            query,
+            numResults = Math.Min(req.LeadCount * 3, 30),
+            type = "auto",
+            contents = new { text = new { maxCharacters = 1500 } }
+        });
+        using var response = await client.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            return new LeadSearchResponse("Exa", query, new(), $"Exa returned {(int)response.StatusCode}. Check the free-tier key or wait and retry.");
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        return MapWebResults("Exa", query, req, json, "results");
+    }
+
+    private static LeadSearchResponse MapWebResults(string provider, string query, LeadSearchRequest req, JsonElement json, string property)
+    {
+        var results = new List<LeadSearchResultDto>();
+        if (json.TryGetProperty(property, out var rows))
+        {
+            foreach (var row in rows.EnumerateArray())
+            {
+                var title = Get(row, "title") ?? "Business listing";
+                var description = Get(row, "content") ?? Get(row, "description") ?? Get(row, "text") ?? "";
+                var url = Get(row, "url");
+                var phone = NormalizeIndiaPhone(ExtractPhone($"{title} {description}"));
+                if (phone is null) continue;
+                results.Add(new LeadSearchResultDto(url ?? Guid.NewGuid().ToString("N"), title, null, phone, description,
+                    provider, url, .6m, true));
+                if (results.Count >= req.LeadCount) break;
+            }
+        }
+        return new LeadSearchResponse(provider, query, results,
+            results.Count == 0 ? $"{provider} returned no public phone numbers for this query." : null);
     }
 
     /// <summary>Optional Brave Web Search free-tier integration. It only accepts

@@ -41,6 +41,12 @@ services:
         value: http://localhost:3001
       - key: Meta__VerifyToken
         generateValue: true
+      # Optional free-tier web search keys. If present, Tavily is preferred,
+      # then Exa, then Brave, then the no-key OpenStreetMap fallback.
+      - key: LeadDiscovery__TavilyApiKey
+        sync: false
+      - key: LeadDiscovery__ExaApiKey
+        sync: false
 
 databases:
   - name: win-master-db
