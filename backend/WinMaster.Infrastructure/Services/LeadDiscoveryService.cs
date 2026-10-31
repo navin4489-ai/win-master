@@ -34,8 +34,10 @@ public class LeadDiscoveryService
         var query = string.IsNullOrWhiteSpace(req.Keyword)
             ? $"{req.BusinessType} near {req.Pincode}, India"
             : $"{req.Keyword} {req.BusinessType} near {req.Pincode}, India";
+        // Google Places is preferred when configured. Without a paid-provider key,
+        // use the free OpenStreetMap/Nominatim/Overpass public-data fallback.
         if (string.IsNullOrWhiteSpace(apiKey))
-            return new LeadSearchResponse("GooglePlaces", query, new(), "Lead discovery is not configured. Add LeadDiscovery:ApiKey (Google Places API) to the API environment before searching.");
+            return await SearchOpenStreetMapAsync(query, req, ct);
 
         var client = _http.CreateClient("lead-discovery");
         var searchUrl = $"https://maps.googleapis.com/maps/api/place/textsearch/json?query={Uri.EscapeDataString(query)}&key={Uri.EscapeDataString(apiKey)}";
@@ -68,6 +70,40 @@ public class LeadDiscoveryService
             }
         }
         return new LeadSearchResponse("GooglePlaces", query, results, results.Count == 0 ? "No public phone numbers were returned for this search." : null);
+    }
+
+    private async Task<LeadSearchResponse> SearchOpenStreetMapAsync(string query, LeadSearchRequest req, CancellationToken ct)
+    {
+        var client = _http.CreateClient("lead-discovery");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("WinMasterLeadDiscovery/1.0 contact-admin");
+        var geoUrl = $"https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q={Uri.EscapeDataString(req.Pincode + ", India")}";
+        var geo = await client.GetFromJsonAsync<JsonElement[]>(geoUrl, ct) ?? Array.Empty<JsonElement>();
+        if (geo.Length == 0) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
+        var lat = Get(geo[0], "lat"); var lon = Get(geo[0], "lon");
+        if (lat is null || lon is null) return new LeadSearchResponse("OpenStreetMap", query, new(), "PIN code location was not found.");
+        var overpass = $"[out:json][timeout:20];(nwr[\"name\"][\"phone\"](around:8000,{lat},{lon});nwr[\"name\"][\"contact:phone\"](around:8000,{lat},{lon}););out center tags;";
+        using var content = new StringContent(overpass, System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
+        using var response = await client.PostAsync("https://overpass-api.de/api/interpreter", content, ct);
+        if (!response.IsSuccessStatusCode) return new LeadSearchResponse("OpenStreetMap", query, new(), "Free public listing provider is temporarily unavailable.");
+        var data = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        var results = new List<LeadSearchResultDto>();
+        if (data.TryGetProperty("elements", out var elements))
+        {
+            foreach (var e in elements.EnumerateArray())
+            {
+                if (!e.TryGetProperty("tags", out var t)) continue;
+                var name = Get(t, "name");
+                var phone = NormalizeIndiaPhone(Get(t, "phone") ?? Get(t, "contact:phone"));
+                if (string.IsNullOrWhiteSpace(name) || phone is null) continue;
+                var address = Get(t, "addr:street") ?? Get(t, "addr:full");
+                results.Add(new LeadSearchResultDto(
+                    Get(e, "id") ?? Guid.NewGuid().ToString("N"), name, null, phone, address,
+                    "OpenStreetMap", "https://www.openstreetmap.org/", .65m, true));
+                if (results.Count >= req.LeadCount) break;
+            }
+        }
+        return new LeadSearchResponse("OpenStreetMap", query, results,
+            results.Count == 0 ? "No public phone numbers were found. Try a broader business type or PIN code." : null);
     }
 
     public async Task<LeadImportResult> ImportAsync(int ownerId, int groupId, LeadImportRequest req)
@@ -121,6 +157,14 @@ public class LeadDiscoveryService
         return null;
     }
 
-    private static string? Get(JsonElement element, string property) =>
-        element.TryGetProperty(property, out var value) ? value.GetString() : null;
+    private static string? Get(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value)) return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.ToString(),
+            _ => null
+        };
+    }
 }
