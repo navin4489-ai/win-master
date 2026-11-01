@@ -170,6 +170,47 @@ public class CampaignReliabilityTests
     }
 
     [Fact]
+    public async Task Start_WithDroppedSession_ActivelyReconnectsBeforeBlocking()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        using var db = NewDb(conn);
+        var c = NewCampaign(db, 2);
+        c.Status = CampaignStatus.Draft;
+        db.SaveChanges();
+
+        // Bridge reachable but the live session dropped (e.g. Render sleep wiped it).
+        var bridge = new FakeBridge { Status = "disconnected" };
+        var svc = new CampaignService(db, bridge);
+
+        var ex = await Assert.ThrowsAsync<BusinessException>(() => svc.TransitionAsync(1, c.Id, "start"));
+
+        // Must have actively kicked off reconnection for the existing account, not just
+        // told the user to go connect manually, and the guidance must mention the QR.
+        Assert.True(bridge.ConnectCalls > 0, "expected the campaign start to call bridge.ConnectAsync");
+        Assert.Contains("Reconnecting WhatsApp", ex.Message);
+        Assert.Contains("QR", ex.Message);
+    }
+
+    [Fact]
+    public async Task Start_WhenAlreadyConnected_DoesNotTriggerReconnect()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        using var db = NewDb(conn);
+        var c = NewCampaign(db, 2);
+        c.Status = CampaignStatus.Draft;
+        db.SaveChanges();
+
+        var bridge = new FakeBridge { Status = "connected" };
+        var svc = new CampaignService(db, bridge);
+        var dto = await svc.TransitionAsync(1, c.Id, "start");
+
+        Assert.Equal(0, bridge.ConnectCalls); // healthy session → no reconnect needed
+        Assert.Equal("Running", dto.Status);
+    }
+
+    [Fact]
     public async Task TemplateMedia_IsPropagatedToOutboundMessage()
     {
         using var conn = new SqliteConnection("DataSource=:memory:");

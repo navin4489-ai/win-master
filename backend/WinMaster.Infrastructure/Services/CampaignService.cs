@@ -215,7 +215,16 @@ public class CampaignService
 
         if (!bridgeReachable)
             throw new BusinessException("WhatsApp engine is offline. Open Accounts, connect a Baileys account and scan the QR, then try again.");
-        throw new BusinessException("No WhatsApp account is linked. Open Accounts → Connect and scan the QR with your phone before starting the campaign.");
+
+        // An account already exists but the session dropped (sleep/redeploy). Kick off
+        // reconnection for every candidate so the bridge resumes or regenerates the QR,
+        // rather than only telling the user to go connect manually.
+        foreach (var a in accounts)
+        {
+            try { await _bridge.ConnectAsync(a.Id); }
+            catch { /* best-effort: a failed kick-off must not mask the guidance below */ }
+        }
+        throw new BusinessException("Reconnecting WhatsApp — scan the QR shown under Accounts → Connect to link your phone, then start the campaign. It will begin sending as soon as the phone links.");
     }
 
     /// <summary>Materializes one recipient row per contact (idempotent — duplicate-safe).</summary>
