@@ -289,6 +289,10 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ConnectionMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<int>("CooldownMinutes")
                         .HasColumnType("integer");
 
@@ -317,6 +321,9 @@ namespace WinMaster.Infrastructure.Data.Migrations
 
                     b.Property<int>("OwnerId")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("PausedByConnection")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("PersonalizeMessage")
                         .HasColumnType("boolean");

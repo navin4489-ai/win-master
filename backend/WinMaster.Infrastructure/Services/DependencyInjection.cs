@@ -38,7 +38,9 @@ public static class DependencyInjection
         services.AddScoped<IWhatsAppChannel, MetaCloudChannel>();
         services.AddScoped<IWhatsAppChannel, BaileysBridgeChannel>();
         services.AddScoped<IWhatsAppChannelFactory, WhatsAppChannelFactory>();
-        services.AddScoped<IWaBridgeClient, WaBridgeClient>();
+        // Stateless (IHttpClientFactory + IConfiguration + ILogger only) and injected by
+        // the singleton CampaignWorker hosted service, so register it as a singleton.
+        services.AddSingleton<IWaBridgeClient, WaBridgeClient>();
         services.AddSingleton<IPushService, NoOpPushService>();
 
         services.AddSingleton<TokenService>();
