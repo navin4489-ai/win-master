@@ -13,6 +13,23 @@ final campaignsProvider = FutureProvider.autoDispose<List<Campaign>>((ref) async
 
 class CampaignsScreen extends ConsumerWidget {
   const CampaignsScreen({super.key});
+
+  /// Short human label for why the system auto-paused a campaign.
+  String _pauseLabel(Campaign c) {
+    switch (c.pauseReason) {
+      case 'daily_limit':
+        final at = c.limitResumeAt == null ? null : DateTime.tryParse(c.limitResumeAt!);
+        return at == null
+            ? 'Daily safe limit reached'
+            : 'Daily safe limit — resumes ${at.toLocal().hour}:${at.toLocal().minute.toString().padLeft(2, '0')}';
+      case 'restriction':
+        return 'WhatsApp restriction — protecting account';
+      case 'connection':
+        return 'WhatsApp disconnected';
+    }
+    return 'Paused';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(campaignsProvider);
@@ -44,6 +61,10 @@ class CampaignsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 4),
                         Text('${c.processedCount}/${c.totalRecipients} processed', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A90))),
+                        if (c.status == 'Paused' && c.pauseReason != null) ...[
+                          const SizedBox(height: 4),
+                          Text(_pauseLabel(c), style: TextStyle(fontSize: 11, color: c.pauseReason == 'restriction' ? const Color(0xFFB91C1C) : const Color(0xFFB45309))),
+                        ],
                       ]),
                       trailing: StatusChip(c.status),
                       onTap: () => context.push('/campaigns/${c.id}'),
@@ -68,6 +89,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
   String _name = 'Campaign';
   bool _pausedByConnection = false;
   String _connectionMessage = '';
+  String? _pauseReason;
+  String? _limitResumeAt;
   int _failedCount = 0;
   Timer? _timer;
 
@@ -84,14 +107,42 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
     super.dispose();
   }
 
+  bool get _isRestriction => _pauseReason == 'restriction';
+
+  String _pauseTitle() {
+    switch (_pauseReason) {
+      case 'daily_limit':
+        return 'Paused — daily safe limit reached';
+      case 'restriction':
+        return 'Paused — WhatsApp is restricting this account';
+      case 'connection':
+        return 'Paused — WhatsApp disconnected';
+    }
+    return 'Paused';
+  }
+
+  String _defaultPauseMessage() {
+    switch (_pauseReason) {
+      case 'daily_limit':
+        final at = _limitResumeAt == null ? null : DateTime.tryParse(_limitResumeAt!);
+        return at == null
+            ? 'Sending resumes automatically the next day — this protects your WhatsApp number from a restriction.'
+            : 'Sending resumes automatically at ${at.toLocal().hour}:${at.toLocal().minute.toString().padLeft(2, '0')} — this protects your WhatsApp number from a restriction.';
+      case 'restriction':
+        return 'Sending is stopped to avoid a ban. The campaign auto-retries after the cool-down; scan the QR if the session dropped.';
+    }
+    return 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.';
+  }
+
   Future<void> _load() async {
-    try {
-      final c = await ref.read(apiProvider).get('/api/campaigns/${widget.id}');
+    try {      final c = await ref.read(apiProvider).get('/api/campaigns/${widget.id}');
       if (mounted) {
         setState(() {
           _name = c['name'] ?? 'Campaign';
           _pausedByConnection = c['pausedByConnection'] == true;
           _connectionMessage = c['connectionMessage']?.toString() ?? '';
+          _pauseReason = c['pauseReason']?.toString();
+          _limitResumeAt = c['limitResumeAt']?.toString();
           _failedCount = (c['failedCount'] as num?)?.toInt() ?? 0;
         });
       }
@@ -141,20 +192,20 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
                   margin: const EdgeInsets.only(bottom: 14),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7),
+                    color: _isRestriction ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFF59E0B)),
+                    border: Border.all(color: _isRestriction ? const Color(0xFFDC2626) : const Color(0xFFF59E0B)),
                   ),
                   child: Row(children: [
-                    const Icon(Icons.wifi_off, color: Color(0xFFB45309)),
+                    Icon(_isRestriction ? Icons.shield_outlined : Icons.wifi_off,
+                        color: _isRestriction ? const Color(0xFFB91C1C) : const Color(0xFFB45309)),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text('Paused — WhatsApp disconnected', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFB45309))),
+                        Text(_pauseTitle(), style: TextStyle(fontWeight: FontWeight.w700, color: _isRestriction ? const Color(0xFFB91C1C) : const Color(0xFFB45309))),
                         const SizedBox(height: 2),
-                        Text(_connectionMessage.isEmpty
-                            ? 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.'
-                            : _connectionMessage, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E))),
+                        Text(_connectionMessage.isEmpty ? _defaultPauseMessage() : _connectionMessage,
+                            style: TextStyle(fontSize: 12, color: _isRestriction ? const Color(0xFF991B1B) : const Color(0xFF92400E))),
                       ]),
                     ),
                   ]),

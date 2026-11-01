@@ -19,12 +19,20 @@ public class AccountService
     public AccountService(AppDbContext db, IEncryptionService enc, IWaBridgeClient bridge)
     { _db = db; _enc = enc; _bridge = bridge; }
 
-    public async Task<List<WaAccountDto>> ListAsync(int ownerId) =>
-        (await _db.WhatsAppAccounts.Include(a => a.Proxy).Where(a => a.OwnerId == ownerId).ToListAsync())
-        .Select(a => a.ToDto()).ToList();
+    public async Task<List<WaAccountDto>> ListAsync(int ownerId)
+    {
+        var accounts = await _db.WhatsAppAccounts.Include(a => a.Proxy).Where(a => a.OwnerId == ownerId).ToListAsync();
+        var ids = accounts.Select(a => a.Id).ToList();
+        var bans = await _db.AntiBanSettings.Where(b => ids.Contains(b.AccountId)).ToListAsync();
+        return accounts.Select(a => a.ToDto(bans.FirstOrDefault(b => b.AccountId == a.Id))).ToList();
+    }
 
-    public async Task<WaAccountDto> GetAsync(int ownerId, int id) =>
-        (await Owned(ownerId, id)).ToDto();
+    public async Task<WaAccountDto> GetAsync(int ownerId, int id)
+    {
+        var acc = await Owned(ownerId, id);
+        var ban = await _db.AntiBanSettings.FirstOrDefaultAsync(b => b.AccountId == acc.Id);
+        return acc.ToDto(ban);
+    }
 
     public async Task<WaAccountDto> CreateAsync(int ownerId, CreateWaAccountRequest req)
     {

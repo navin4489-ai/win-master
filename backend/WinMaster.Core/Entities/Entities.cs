@@ -103,6 +103,12 @@ public class WhatsAppAccount : BaseEntity
     public int RotationWeight { get; set; } = 1;
     public int DailyLimit { get; set; } = 1000;
     public int SentToday { get; set; }
+    /// <summary>UTC date the SentToday counter last reset; used to roll the daily cap over at midnight.</summary>
+    public DateTime? LastDailyResetAt { get; set; }
+    /// <summary>True when WhatsApp has flagged the account (restriction/ban). Blocks sends until cleared.</summary>
+    public bool IsRestricted { get; set; }
+    [MaxLength(500)] public string? RestrictionReason { get; set; }
+    public DateTime? RestrictedAt { get; set; }
     public DateTime? LastSeenAt { get; set; }
     /// <summary>Encrypted CloudApi credentials JSON (phoneNumberId, accessToken, wabaId).</summary>
     public string? CredentialsEnc { get; set; }
@@ -197,9 +203,15 @@ public class Campaign : BaseEntity
     public int FailedCount { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
-    /// <summary>True only when the worker paused this campaign because WhatsApp disconnected.</summary>
+    /// <summary>True only when the worker auto-paused this campaign (connection, daily limit or restriction).</summary>
     public bool PausedByConnection { get; set; }
     [MaxLength(500)] public string? ConnectionMessage { get; set; }
+    /// <summary>Why the system auto-paused: null, "connection", "daily_limit" or "restriction".</summary>
+    [MaxLength(20)] public string? PauseReason { get; set; }
+    /// <summary>For daily_limit pauses: UTC time when the daily counter resets and the campaign may auto-resume.</summary>
+    public DateTime? LimitResumeAt { get; set; }
+    /// <summary>For restriction pauses: when WhatsApp flagged the account; drives the cool-down before auto-resume.</summary>
+    public DateTime? RestrictionPausedAt { get; set; }
 
     public ICollection<CampaignRecipient> Recipients { get; set; } = new List<CampaignRecipient>();
 }
@@ -229,16 +241,19 @@ public class CampaignCheckpoint : BaseEntity
     public int RotationIndex { get; set; }
     /// <summary>Seconds to wait (from UpdatedAt) before sending the next recipient — non-blocking pacing.</summary>
     public int NextSendDelaySec { get; set; }
+    /// <summary>Consecutive send failures in a row; a spike is an early restriction signal.</summary>
+    public int ConsecutiveFailures { get; set; }
 }
 
 public class AccountAntiBanSettings : BaseEntity
 {
     public int AccountId { get; set; }
-    public int MinDelaySec { get; set; } = 5;
-    public int MaxDelaySec { get; set; } = 15;
-    public int BatchSize { get; set; } = 50;
-    public int CooldownMinutes { get; set; } = 5;
-    public int DailyCap { get; set; } = 1000;
+    // Conservative defaults: a fresh WhatsApp number must ramp up slowly or it gets restricted.
+    public int MinDelaySec { get; set; } = 30;
+    public int MaxDelaySec { get; set; } = 60;
+    public int BatchSize { get; set; } = 15;
+    public int CooldownMinutes { get; set; } = 10;
+    public int DailyCap { get; set; } = 50;
 }
 
 public class AutoReplyRule : BaseEntity

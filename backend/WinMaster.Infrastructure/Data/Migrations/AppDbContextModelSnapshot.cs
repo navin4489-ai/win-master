@@ -308,6 +308,9 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.Property<int>("GroupId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("LimitResumeAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("MaxDelaySec")
                         .HasColumnType("integer");
 
@@ -322,6 +325,10 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.Property<int>("OwnerId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("PauseReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<bool>("PausedByConnection")
                         .HasColumnType("boolean");
 
@@ -330,6 +337,9 @@ namespace WinMaster.Infrastructure.Data.Migrations
 
                     b.Property<int>("ProcessedCount")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RestrictionPausedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("RotationMode")
                         .HasColumnType("integer");
@@ -379,6 +389,9 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("CampaignId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ConsecutiveFailures")
                         .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedAt")
@@ -1319,6 +1332,12 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.Property<int>("EngineType")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsRestricted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastDailyResetAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1340,6 +1359,13 @@ namespace WinMaster.Infrastructure.Data.Migrations
 
                     b.Property<string>("QrPngBase64")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("RestrictedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RestrictionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<int>("RotationWeight")
                         .HasColumnType("integer");

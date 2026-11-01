@@ -15,7 +15,12 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
       <div class="card card-pad">
         <div class="between"><b>{{ a.displayName }}</b><span class="badge" [class]="badge(a.status)">{{ a.status }}</span></div>
         <div class="muted">{{ a.phoneNumber || '—' }} · {{ a.engineType }}</div>
-        <div class="muted" style="font-size:.8rem;margin:.4rem 0">Sent today {{ a.sentToday }}/{{ a.dailyLimit }} · warmup {{ a.warmupState }}</div>
+        @if (a.isRestricted) {
+          <div style="margin:.5rem 0;padding:.5rem .6rem;border-radius:8px;background:rgba(220,38,38,.1);color:var(--danger,#dc2626);font-size:.8rem">
+            <b>Restricted by WhatsApp</b> — {{ a.restrictionReason || 'sending stopped to protect the number' }}. Campaigns are paused; it recovers automatically after the cool-down.
+          </div>
+        }
+        <div class="muted" style="font-size:.8rem;margin:.4rem 0">Sent today {{ a.sentToday }}/{{ safeCap(a) }} safe cap · warmup {{ a.warmupState }}</div>
         <div class="progress"><span [style.width.%]="pct(a)"></span></div>
         <div class="row-actions" style="margin-top:.7rem">
           @if (a.engineType === 'Baileys' && a.status !== 'Connected') { <button class="btn btn-primary btn-sm" (click)="connect(a)">Connect (QR)</button> }
@@ -80,7 +85,7 @@ export class AccountsComponent implements OnInit, OnDestroy {
   qrStatus = signal('Waiting for QR…');
   private qrTimer: any = null;
   antiBanAccount = signal<WaAccount | null>(null);
-  antiBan: AntiBan = { minDelaySec: 5, maxDelaySec: 15, batchSize: 50, cooldownMinutes: 5, dailyCap: 1000 };
+  antiBan: AntiBan = { minDelaySec: 30, maxDelaySec: 60, batchSize: 15, cooldownMinutes: 10, dailyCap: 50 };
   form: any = {};
 
   ngOnInit() { this.load(); }
@@ -121,6 +126,8 @@ export class AccountsComponent implements OnInit, OnDestroy {
   remove(a: WaAccount) { if (confirm('Delete account?')) this.api.deleteAccount(a.id).subscribe(() => { this.toast.success('Deleted'); this.load(); }); }
   openAntiBan(a: WaAccount) { this.antiBanAccount.set(a); this.api.antiBan(a.id).subscribe(s => this.antiBan = s); }
   saveAntiBan(a: WaAccount) { this.api.updateAntiBan(a.id, this.antiBan).subscribe(() => { this.toast.success('Saved'); this.antiBanAccount.set(null); }); }
-  pct(a: WaAccount) { return a.dailyLimit ? Math.min(100, Math.round(a.sentToday * 100 / a.dailyLimit)) : 0; }
+  pct(a: WaAccount) { const cap = this.safeCap(a); return cap ? Math.min(100, Math.round(a.sentToday * 100 / cap)) : 0; }
+  /** The real enforceable daily cap (server-computed: warm-up ramp + anti-ban), falling back to dailyLimit. */
+  safeCap(a: WaAccount) { return a.effectiveDailyCap ?? a.dailyLimit ?? 0; }
   badge(s: string) { return { Connected: 'badge-green', QrReady: 'badge-amber', Connecting: 'badge-amber', Banned: 'badge-red', Error: 'badge-red' }[s] || 'badge-gray'; }
 }

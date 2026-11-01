@@ -38,7 +38,7 @@ public record DeactivateRequest(string Key, string Hwid);
 // ---------- WhatsApp accounts ----------
 public record WaAccountDto(int Id, string EngineType, string? PhoneNumber, string DisplayName, string Status,
     int? ProxyId, string? ProxyLabel, string WarmupState, int RotationWeight, int DailyLimit, int SentToday,
-    DateTime? LastSeenAt, string? SessionId);
+    DateTime? LastSeenAt, string? SessionId, bool IsRestricted, string? RestrictionReason, int EffectiveDailyCap);
 public record CreateWaAccountRequest(string EngineType, string? PhoneNumber, string DisplayName,
     int? ProxyId, CloudApiCredentials? Credentials);
 public record UpdateWaAccountRequest(string DisplayName, int? ProxyId, int? RotationWeight, int? DailyLimit);
@@ -82,7 +82,8 @@ public record CampaignDto(int Id, string Name, int? TemplateId, string? Template
     string EngineType, int? AccountId, string RotationMode, string Status, DateTime? ScheduledAt,
     string? WindowStart, string? WindowEnd, bool SpintaxEnabled, bool PersonalizeMessage, PacingDto Pacing,
     int TotalRecipients, int ProcessedCount, int FailedCount, int ProgressPercent,
-    DateTime? StartedAt, DateTime? CompletedAt, DateTime CreatedAt, bool PausedByConnection, string? ConnectionMessage);
+    DateTime? StartedAt, DateTime? CompletedAt, DateTime CreatedAt, bool PausedByConnection, string? ConnectionMessage,
+    string? PauseReason, DateTime? LimitResumeAt);
 public record CreateCampaignRequest(string Name, int? TemplateId, string? Body, int GroupId, string EngineType,
     int? AccountId, string RotationMode, DateTime? ScheduledAt, string? WindowStart, string? WindowEnd,
     bool SpintaxEnabled, bool PersonalizeMessage, PacingDto Pacing);

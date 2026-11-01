@@ -190,6 +190,15 @@ public class CampaignService
         if (accounts.Count == 0)
             throw new BusinessException("No WhatsApp account for this campaign. Add and connect one first.");
 
+        // Never start a campaign on a restricted/banned number — that only deepens the ban.
+        foreach (var a in accounts)
+        {
+            if (a.IsRestricted)
+                throw new BusinessException(
+                    $"This WhatsApp account is restricted by WhatsApp{(string.IsNullOrWhiteSpace(a.RestrictionReason) ? "" : $" ({a.RestrictionReason})")}. " +
+                    "Starting a campaign now would risk a permanent ban. Wait for the restriction to lift, then try again.");
+        }
+
         // A send is only real when the bridge reports a live "connected" session.
         var connectedId = 0;
         var bridgeReachable = false;
@@ -315,6 +324,6 @@ public class CampaignService
             c.WindowStart?.ToString(), c.WindowEnd?.ToString(), c.SpintaxEnabled, c.PersonalizeMessage,
             new PacingDto(c.MinDelaySec, c.MaxDelaySec, c.BatchSize, c.CooldownMinutes),
             c.TotalRecipients, c.ProcessedCount, c.FailedCount, progress, c.StartedAt, c.CompletedAt, c.CreatedAt,
-            c.PausedByConnection, c.ConnectionMessage);
+            c.PausedByConnection, c.ConnectionMessage, c.PauseReason, c.LimitResumeAt);
     }
 }

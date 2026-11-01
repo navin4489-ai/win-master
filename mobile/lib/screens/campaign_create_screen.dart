@@ -22,7 +22,7 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
   bool _spintax = true;
   bool _saving = false;
   bool _aiBusy = false;
-  int _minDelay = 5, _maxDelay = 15, _batch = 50, _cooldown = 5;
+  int _minDelay = 30, _maxDelay = 60, _batch = 15, _cooldown = 10;
 
   @override
   void initState() {

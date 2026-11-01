@@ -33,7 +33,14 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
           <tr>
             <td><a [routerLink]="['/campaigns', c.id]"><b>{{ c.name }}</b></a><div class="muted">{{ c.groupName }}</div></td>
             <td><span class="badge badge-gray">{{ c.engineType }}</span></td>
-            <td><span class="badge" [class]="badge(c.status)">{{ c.status }}</span></td>
+            <td>
+              <span class="badge" [class]="badge(c.status)">{{ c.status }}</span>
+              @if (c.status === 'Paused' && c.pauseReason) {
+                <div class="muted" style="font-size:11px;max-width:220px" [title]="c.connectionMessage || ''">
+                  {{ pauseLabel(c) }}
+                </div>
+              }
+            </td>
             <td style="min-width:150px"><div class="progress"><span [style.width.%]="c.progressPercent"></span></div><small class="muted">{{ c.progressPercent }}%</small></td>
             <td>{{ c.processedCount }}/{{ c.totalRecipients }}</td>
             <td class="row-actions">
@@ -172,6 +179,16 @@ export class CampaignsComponent implements OnInit, OnDestroy {
     this.api.campaignRetryFailed(c.id).subscribe({ next: () => { this.toast.success('Retrying failed recipients'); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed to retry') });
   }
   badge(s: string) { return { Running: 'badge-blue', Completed: 'badge-green', Scheduled: 'badge-amber', Failed: 'badge-red', Paused: 'badge-amber' }[s] || 'badge-gray'; }
+  /** Short human label for why the system auto-paused a campaign. */
+  pauseLabel(c: Campaign): string {
+    if (c.pauseReason === 'daily_limit') {
+      const at = c.limitResumeAt ? new Date(c.limitResumeAt) : null;
+      return at && !isNaN(at.getTime()) ? `Daily safe limit — resumes ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Daily safe limit reached';
+    }
+    if (c.pauseReason === 'restriction') return 'WhatsApp restriction — protecting account';
+    if (c.pauseReason === 'connection') return 'WhatsApp disconnected';
+    return c.connectionMessage || 'Paused';
+  }
   aiGenerate() {
     if (!this.form.name && !this.form.body) { this.toast.error('Enter a campaign name or topic first'); return; }
     this.aiBusy.set(true);
@@ -180,5 +197,5 @@ export class CampaignsComponent implements OnInit, OnDestroy {
       .subscribe({ next: (r: any) => { this.form.body = r.message; this.aiBusy.set(false); this.toast.success('AI message generated'); },
         error: (e: any) => { this.aiBusy.set(false); this.toast.error(e?.error?.detail || 'AI failed'); } });
   }
-  blank() { return { name: '', groupId: null, templateId: null, body: '', engineType: 'Baileys', rotationMode: 'RoundRobin', scheduledAt: '', spintaxEnabled: true, personalizeMessage: true, pacing: { minDelaySec: 5, maxDelaySec: 15, batchSize: 50, cooldownMinutes: 5 } }; }
+  blank() { return { name: '', groupId: null, templateId: null, body: '', engineType: 'Baileys', rotationMode: 'RoundRobin', scheduledAt: '', spintaxEnabled: true, personalizeMessage: true, pacing: { minDelaySec: 30, maxDelaySec: 60, batchSize: 15, cooldownMinutes: 10 } }; }
 }

@@ -52,6 +52,10 @@ public class CampaignWorker : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var factory = scope.ServiceProvider.GetRequiredService<IWhatsAppChannelFactory>();
 
+        // Auto-resume any campaign whose safety pause has expired (daily cap rolled over,
+        // or restriction cool-down elapsed) so nothing stays parked forever.
+        await AutoResumeAsync(db, ct);
+
         // Process every running campaign each tick (round-robin), so one campaign's
         // pacing can never starve the others.
         var running = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running || (c.Status == CampaignStatus.Paused && c.PausedByConnection))
@@ -66,11 +70,52 @@ public class CampaignWorker : BackgroundService
     }
 
     /// <summary>
+    /// Flips a safety-paused campaign back to Running once its resume time has passed and the
+    /// WhatsApp account is connected again. Daily-limit pauses resume at the next UTC day;
+    /// restriction pauses resume after the cool-down. Connection pauses are handled by
+    /// <see cref="EnsureLiveAsync"/>.
+    /// </summary>
+    internal async Task AutoResumeAsync(AppDbContext db, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var paused = await db.Campaigns
+            .Where(c => c.Status == CampaignStatus.Paused && c.PausedByConnection && c.PauseReason != null)
+            .ToListAsync(ct);
+        foreach (var c in paused)
+        {
+            // Connection pauses resume via EnsureLiveAsync once the bridge is live again.
+            if (c.PauseReason == "connection") continue;
+
+            if (c.PauseReason == "daily_limit" && c.LimitResumeAt.HasValue && now < c.LimitResumeAt.Value)
+                continue; // not yet the next day
+
+            if (c.PauseReason == "restriction")
+            {
+                if (!c.RestrictionPausedAt.HasValue || now < AccountSafety.RestrictionResumeAt(c.RestrictionPausedAt.Value))
+                    continue; // still cooling down
+                // Cool-down elapsed: clear the account flag so we cautiously resume. If WhatsApp
+                // is still limiting us, the very next send fails with a restriction error and we
+                // re-pause immediately — safe, self-correcting probing.
+                var accId = c.AccountId ?? 0;
+                var acc = accId > 0 ? await db.WhatsAppAccounts.FindAsync(new object[] { accId }, ct) : null;
+                if (acc != null) { acc.IsRestricted = false; acc.RestrictionReason = null; acc.RestrictedAt = null; }
+            }
+
+            var resumedFrom = c.PauseReason;
+            c.Status = CampaignStatus.Running;
+            c.PausedByConnection = false; c.PauseReason = null;
+            c.ConnectionMessage = null; c.LimitResumeAt = null; c.RestrictionPausedAt = null;
+            _log.LogInformation("Campaign {Id} auto-resumed from '{Reason}' pause.", c.Id, resumedFrom);
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
+    /// <summary>
     /// Sends at most one recipient per tick for a campaign, honoring pacing via the
     /// checkpoint timestamp (no blocking Task.Delay). This keeps the worker responsive
     /// and prevents a single slow/hung send from freezing all campaigns.
     /// </summary>
-    private async Task ProcessDueAsync(AppDbContext db, IWhatsAppChannelFactory factory, int campaignId, CancellationToken ct)
+    internal async Task ProcessDueAsync(AppDbContext db, IWhatsAppChannelFactory factory, int campaignId, CancellationToken ct)
     {
         var c = await db.Campaigns.Include(x => x.Template).FirstOrDefaultAsync(x => x.Id == campaignId, ct);
         if (c is null || (c.Status != CampaignStatus.Running && !(c.Status == CampaignStatus.Paused && c.PausedByConnection))) return;
@@ -89,7 +134,42 @@ public class CampaignWorker : BackgroundService
         if (recipient is null) { await CompleteAsync(db, c, ct); return; }
 
         var accounts = await ResolveAccountsAsync(db, c, ct);
+
+        // ---- Account safety gate: never let volume endanger the WhatsApp number ----
+        // Resolved before the live-session gate so a RESTRICTED account pauses immediately
+        // instead of being put into a reconnect loop (reconnecting can't send anyway).
+        var accountId = accounts.Count == 0 ? (c.AccountId ?? 0) : accounts[cp.RotationIndex % accounts.Count];
+        var acc = accountId > 0 ? await db.WhatsAppAccounts.FindAsync(new object[] { accountId }, ct) : null;
+        var ban = acc != null ? await db.AntiBanSettings.FirstOrDefaultAsync(b => b.AccountId == acc.Id, ct) : null;
+        var now = DateTime.UtcNow;
+
+        if (acc != null)
+        {
+            // Roll the daily counter over on a new UTC day.
+            if (AccountSafety.ShouldResetDaily(acc, now)) { AccountSafety.ResetDaily(acc, now); await db.SaveChangesAsync(ct); }
+
+            // Already flagged as restricted → hard-stop, never send.
+            if (acc.IsRestricted)
+            {
+                await PauseForRestrictionAsync(db, c, acc, acc.RestrictionReason, ct);
+                return;
+            }
+
+            // Daily cap: pause the campaign (not fail) and auto-resume at the next day.
+            var cap = AccountSafety.EffectiveDailyCap(acc, ban);
+            if (acc.SentToday >= cap)
+            {
+                var resumeAt = now.Date.AddDays(1);
+                c.Status = CampaignStatus.Paused; c.PausedByConnection = true; c.PauseReason = "daily_limit";
+                c.LimitResumeAt = resumeAt; c.ConnectionMessage = AccountSafety.DailyCapMessage(acc.SentToday, cap, resumeAt);
+                await db.SaveChangesAsync(ct);
+                _log.LogWarning("Campaign {Id} paused at daily cap {Sent}/{Cap} for account {AccId}.", c.Id, acc.SentToday, cap, acc.Id);
+                return;
+            }
+        }
+
         if (!await EnsureLiveAsync(db, c, accounts, ct)) return;
+
         recipient.Status = RecipientStatus.Sending;
         await db.SaveChangesAsync(ct);
 
@@ -97,13 +177,14 @@ public class CampaignWorker : BackgroundService
         recipient.VariantText = body;
 
         var channel = factory.For(c.EngineType);
-        var accountId = accounts.Count == 0 ? (c.AccountId ?? 0) : accounts[cp.RotationIndex % accounts.Count];
         var result = await channel.SendAsync(accountId, BuildOutbound(c, recipient.Phone, body), ct);
 
         if (result.Success)
         {
             recipient.Status = RecipientStatus.Sent; recipient.SentAt = DateTime.UtcNow; recipient.MessageId = result.MessageId;
             c.ProcessedCount++;
+            cp.ConsecutiveFailures = 0;
+            if (acc != null) acc.SentToday++; // count toward the daily cap
         }
         else
         {
@@ -116,19 +197,48 @@ public class CampaignWorker : BackgroundService
                 await PauseForConnectionAsync(db, c, accounts, ct);
                 return;
             }
+
+            // EARLY RESTRICTION DETECTION: WhatsApp throttling/banning manifests as send
+            // errors (rate-limit, quality, etc.) or a run of failures against live numbers.
+            // Pause immediately instead of burning the rest of the list and deepening the ban.
+            if (AccountSafety.IsRestrictionError(result.Error))
+            {
+                recipient.Status = RecipientStatus.Failed; recipient.Error = result.Error; c.FailedCount++; c.ProcessedCount++;
+                cp.ConsecutiveFailures = 0;
+                if (acc != null) { acc.IsRestricted = true; acc.RestrictionReason = result.Error; acc.RestrictedAt = DateTime.UtcNow; }
+                await db.SaveChangesAsync(ct);
+                await PauseForRestrictionAsync(db, c, acc, result.Error, ct);
+                return;
+            }
+
             recipient.Status = RecipientStatus.Failed; recipient.Error = result.Error; c.FailedCount++; c.ProcessedCount++;
+            cp.ConsecutiveFailures++;
+            // Failure-streak circuit breaker: a burst of failures is the earliest on-the-wire
+            // sign the number is being throttled — stop before it escalates to a ban.
+            if (AccountSafety.IsFailureStreak(cp.ConsecutiveFailures))
+            {
+                if (acc != null) { acc.IsRestricted = true; acc.RestrictionReason = $"consecutive failures ({cp.ConsecutiveFailures})"; acc.RestrictedAt = DateTime.UtcNow; }
+                await db.SaveChangesAsync(ct);
+                await PauseForRestrictionAsync(db, c, acc, $"consecutive send failures ({cp.ConsecutiveFailures})", ct);
+                return;
+            }
         }
 
         cp.LastRecipientId = recipient.Id;
         cp.RotationIndex = c.RotationMode == RotationMode.RoundRobin ? cp.RotationIndex + 1 : cp.RotationIndex;
         cp.UpdatedAt = DateTime.UtcNow;
-        // Schedule the next send after a randomized human delay (+ batch cooldown).
+        // Schedule the next send using the SAFE pacing floor (never faster than anti-ban allows).
+        var (minDelay, maxDelay) = acc != null
+            ? AccountSafety.SafePacing(acc, ban, c.MinDelaySec, c.MaxDelaySec)
+            : (c.MinDelaySec, Math.Max(c.MinDelaySec + 1, c.MaxDelaySec));
         var rng = new Random();
-        var delay = rng.Next(c.MinDelaySec, Math.Max(c.MinDelaySec + 1, c.MaxDelaySec + 1));
+        var delay = rng.Next(minDelay, maxDelay + 1);
         cp.SentInBatch++;
-        if (c.BatchSize > 0 && cp.SentInBatch >= c.BatchSize && c.CooldownMinutes > 0)
+        var batchSize = AccountSafety.SafeBatchSize(ban, c.BatchSize);
+        var cooldownMin = AccountSafety.SafeCooldownMinutes(ban, c.CooldownMinutes);
+        if (batchSize > 0 && cp.SentInBatch >= batchSize && cooldownMin > 0)
         {
-            delay = c.CooldownMinutes * 60;
+            delay = cooldownMin * 60;
             cp.SentInBatch = 0;
         }
         cp.NextSendDelaySec = delay;
@@ -225,6 +335,7 @@ public class CampaignWorker : BackgroundService
         {
             c.Status = CampaignStatus.Running;
             c.PausedByConnection = false;
+            c.PauseReason = null; c.LimitResumeAt = null; c.RestrictionPausedAt = null;
             c.ConnectionMessage = null;
             await db.SaveChangesAsync(ct);
         }
@@ -235,11 +346,28 @@ public class CampaignWorker : BackgroundService
     {
         c.Status = CampaignStatus.Paused;
         c.PausedByConnection = true;
+        c.PauseReason = "connection";
         c.ConnectionMessage = "WhatsApp disconnected. Scan the QR in Accounts to resume.";
         await db.SaveChangesAsync(ct);
         foreach (var accountId in accounts)
             await _bridge.ConnectAsync(accountId, ct); // starts reconnect/QR generation; safe to repeat
         _log.LogWarning("Campaign {CampaignId} paused because WhatsApp is disconnected.", c.Id);
+    }
+
+    /// <summary>
+    /// Parks a campaign because WhatsApp is restricting/limiting the account. Sending stops
+    /// immediately to avoid deepening the ban; the campaign auto-resumes after the cool-down
+    /// (handled by <see cref="AutoResumeAsync"/>) once the account is flagged healthy again.
+    /// </summary>
+    private async Task PauseForRestrictionAsync(AppDbContext db, Campaign c, WhatsAppAccount? acc, string? reason, CancellationToken ct)
+    {
+        c.Status = CampaignStatus.Paused;
+        c.PausedByConnection = true;
+        c.PauseReason = "restriction";
+        c.RestrictionPausedAt = acc?.RestrictedAt ?? DateTime.UtcNow;
+        c.ConnectionMessage = AccountSafety.RestrictionMessage(reason);
+        await db.SaveChangesAsync(ct);
+        _log.LogWarning("Campaign {CampaignId} paused for account restriction: {Reason}", c.Id, reason ?? "unknown");
     }
 
     public string BuildMessage(Campaign c, CampaignRecipient r)

@@ -88,8 +88,23 @@ export async function startSession(accountId) {
         await pushEvent("disconnected", accountId, { reason: "logged_out" });
         logger.warn({ accountId }, "logged out, credentials cleared");
       } else {
-        logger.warn({ accountId, code }, "connection closed, reconnecting");
-        setTimeout(() => startSession(accountId).catch(() => {}), 2000);
+        // Baileys disconnect codes that indicate WhatsApp restricted/banned the number
+        // (vs. a transient network drop). Surface them so the API can flag the account
+        // and pause campaigns instead of reconnect-looping into a ban.
+        const restrictionCodes = new Set([
+          DisconnectReason.forbidden,        // 403 — often "temporarily banned"
+          DisconnectReason.badSession,       // 500 — session rejected
+          DisconnectReason.multideviceMismatch,
+          DisconnectReason.badAuth,
+          DisconnectReason.contentPrivacy     // newer privacy/quality lock
+        ].filter((x) => x !== undefined));
+        if (restrictionCodes.has(code)) {
+          await pushEvent("account_restricted", accountId, { code, reason: "restricted" });
+          logger.warn({ accountId, code }, "account restricted/banned by WhatsApp");
+        } else {
+          logger.warn({ accountId, code }, "connection closed, reconnecting");
+          setTimeout(() => startSession(accountId).catch(() => {}), 2000);
+        }
       }
     }
   });

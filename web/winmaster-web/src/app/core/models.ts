@@ -19,6 +19,7 @@ export interface WaAccount {
   id: number; engineType: string; phoneNumber?: string; displayName: string; status: string;
   proxyId?: number | null; proxyLabel?: string | null; warmupState: string; rotationWeight: number;
   dailyLimit: number; sentToday: number; lastSeenAt?: string; sessionId?: string;
+  isRestricted?: boolean; restrictionReason?: string | null; effectiveDailyCap?: number;
 }
 export interface AccountsStatus { connected: number; connecting: number; total: number; }
 export interface Qr { qrData?: string; qrPngBase64?: string; expiresAt?: string; }
@@ -47,6 +48,7 @@ export interface Campaign {
   totalRecipients: number; processedCount: number; failedCount: number; progressPercent: number;
   startedAt?: string; completedAt?: string; createdAt: string;
   pausedByConnection?: boolean; connectionMessage?: string;
+  pauseReason?: string | null; limitResumeAt?: string | null;
 }
 export interface CampaignProgress {
   campaignId: number; status: string; total: number; processed: number; sent: number; delivered: number;

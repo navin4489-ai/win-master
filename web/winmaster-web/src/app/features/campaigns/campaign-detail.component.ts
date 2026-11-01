@@ -34,8 +34,8 @@ import { Campaign, CampaignProgress, CampaignRecipient } from '../../core/models
       <div class="card card-pad" style="margin-bottom:1rem">
         <div class="between">
           <div>
-            <strong style="color:var(--warning,#d97706)">Paused — WhatsApp disconnected</strong>
-            <div class="muted">{{ c.connectionMessage || 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.' }}</div>
+            <strong [style.color]="pauseColor()">{{ pauseTitle() }}</strong>
+            <div class="muted">{{ c.connectionMessage || defaultPauseMessage() }}</div>
           </div>
           <button class="btn btn-ghost" (click)="refresh()">Check now</button>
         </div>
@@ -110,5 +110,28 @@ export class CampaignDetailComponent implements OnInit, OnDestroy {
   pct(p: CampaignProgress) { return p.total ? Math.round(p.processed * 100 / p.total) : 0; }
   eta(p: CampaignProgress) { const s = p.estimatedSecondsRemaining || 0; return s > 60 ? `${Math.round(s / 60)}m` : `${s}s`; }
   badge(s: string) { return { Running: 'badge-blue', Completed: 'badge-green', Scheduled: 'badge-amber', Failed: 'badge-red', Paused: 'badge-amber' }[s] || 'badge-gray'; }
+  // ---- Safety-pause presentation (why the system auto-paused, and when it resumes) ----
+  pauseTitle(): string {
+    const r = this.campaign()?.pauseReason;
+    if (r === 'daily_limit') return 'Paused — daily safe limit reached';
+    if (r === 'restriction') return 'Paused — WhatsApp is restricting this account';
+    if (r === 'connection') return 'Paused — WhatsApp disconnected';
+    return 'Paused';
+  }
+  pauseColor(): string {
+    const r = this.campaign()?.pauseReason;
+    return r === 'restriction' ? 'var(--danger,#dc2626)' : 'var(--warning,#d97706)';
+  }
+  defaultPauseMessage(): string {
+    const c = this.campaign();
+    if (c?.pauseReason === 'daily_limit') {
+      const at = c.limitResumeAt ? new Date(c.limitResumeAt) : null;
+      return at && !isNaN(at.getTime())
+        ? `Sending resumes automatically at ${at.toLocaleString()} — this protects your WhatsApp number from a restriction.`
+        : 'Sending resumes automatically the next day — this protects your WhatsApp number from a restriction.';
+    }
+    if (c?.pauseReason === 'restriction') return 'Sending is stopped to avoid a ban. The campaign auto-retries after the cool-down; scan the QR if the session dropped.';
+    return 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.';
+  }
   rbadge(s: string) { return { Sent: 'badge-blue', Delivered: 'badge-green', Read: 'badge-green', Failed: 'badge-red', Sending: 'badge-amber' }[s] || 'badge-gray'; }
 }

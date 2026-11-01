@@ -90,7 +90,7 @@ class AccountsScreen extends ConsumerWidget {
       if (context.mounted) showError(context, e);
       return;
     }
-    int minD = s['minDelaySec'] ?? 5, maxD = s['maxDelaySec'] ?? 15, batch = s['batchSize'] ?? 50, cool = s['cooldownMinutes'] ?? 5, cap = s['dailyCap'] ?? 1000;
+    int minD = s['minDelaySec'] ?? 30, maxD = s['maxDelaySec'] ?? 60, batch = s['batchSize'] ?? 15, cool = s['cooldownMinutes'] ?? 10, cap = s['dailyCap'] ?? 50;
     if (!context.mounted) return;
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -163,13 +163,34 @@ class AccountsScreen extends ConsumerWidget {
                           const SizedBox(height: 4),
                           Text('${a.phoneNumber ?? '—'} · ${a.engineType} · warmup ${a.warmupState}',
                               style: const TextStyle(fontSize: 12, color: Color(0xFF6B7A90))),
+                          if (a.isRestricted) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFDC2626)),
+                              ),
+                              child: Row(children: [
+                                const Icon(Icons.shield_outlined, size: 18, color: Color(0xFFB91C1C)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Restricted by WhatsApp — ${a.restrictionReason ?? 'sending stopped to protect the number'}. Campaigns are paused; it recovers automatically after the cool-down.',
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF991B1B)),
+                                  ),
+                                ),
+                              ]),
+                            ),
+                          ],
                           const SizedBox(height: 10),
                           LinearProgressIndicator(
-                            value: a.dailyLimit == 0 ? 0 : (a.sentToday / a.dailyLimit).clamp(0, 1),
+                            value: a.effectiveDailyCap == 0 ? 0 : (a.sentToday / a.effectiveDailyCap).clamp(0, 1),
                             backgroundColor: const Color(0xFFE8EDF3), minHeight: 6,
                           ),
                           const SizedBox(height: 4),
-                          Text('${a.sentToday}/${a.dailyLimit} sent today', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A90))),
+                          Text('${a.sentToday}/${a.effectiveDailyCap} sent today (safe cap)', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A90))),
                           const SizedBox(height: 8),
                           Wrap(spacing: 6, children: [
                             if (a.engineType == 'Baileys' && a.status != 'Connected')

@@ -55,12 +55,15 @@ class Campaign {
   final int id;
   final String name, status, engineType;
   final String? groupName;
+  final String? pauseReason, connectionMessage, limitResumeAt;
   final int totalRecipients, processedCount, failedCount, progressPercent;
   Campaign(this.id, this.name, this.status, this.engineType, this.groupName, this.totalRecipients,
-      this.processedCount, this.failedCount, this.progressPercent);
+      this.processedCount, this.failedCount, this.progressPercent,
+      this.pauseReason, this.connectionMessage, this.limitResumeAt);
   factory Campaign.fromJson(Map<String, dynamic> j) => Campaign(
         j['id'], j['name'] ?? '', j['status'] ?? '', j['engineType'] ?? '', j['groupName'],
-        j['totalRecipients'] ?? 0, j['processedCount'] ?? 0, j['failedCount'] ?? 0, j['progressPercent'] ?? 0);
+        j['totalRecipients'] ?? 0, j['processedCount'] ?? 0, j['failedCount'] ?? 0, j['progressPercent'] ?? 0,
+        j['pauseReason'], j['connectionMessage'], j['limitResumeAt']);
 }
 
 class CampaignProgress {
@@ -115,14 +118,16 @@ class License {
 }
 
 class WaAccount {
-  final int id, dailyLimit, sentToday;
+  final int id, dailyLimit, sentToday, effectiveDailyCap;
   final String engineType, displayName, status, warmupState;
-  final String? phoneNumber;
-  WaAccount(this.id, this.dailyLimit, this.sentToday, this.engineType, this.displayName, this.status,
-      this.warmupState, this.phoneNumber);
+  final String? phoneNumber, restrictionReason;
+  final bool isRestricted;
+  WaAccount(this.id, this.dailyLimit, this.sentToday, this.effectiveDailyCap, this.engineType,
+      this.displayName, this.status, this.warmupState, this.phoneNumber, this.isRestricted, this.restrictionReason);
   factory WaAccount.fromJson(Map<String, dynamic> j) => WaAccount(
-        j['id'], j['dailyLimit'] ?? 0, j['sentToday'] ?? 0, j['engineType'] ?? '', j['displayName'] ?? '',
-        j['status'] ?? '', j['warmupState'] ?? '', j['phoneNumber']);
+        j['id'], j['dailyLimit'] ?? 0, j['sentToday'] ?? 0, j['effectiveDailyCap'] ?? j['dailyLimit'] ?? 0,
+        j['engineType'] ?? '', j['displayName'] ?? '', j['status'] ?? '', j['warmupState'] ?? '',
+        j['phoneNumber'], j['isRestricted'] == true, j['restrictionReason']);
 }
 
 class Contact {

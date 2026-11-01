@@ -34,13 +34,16 @@ public static class DbSeeder
         var proxy = new Proxy { OwnerId = user.Id, Type = ProxyType.SOCKS5, Host = "127.0.0.1", Port = 9050, Username = "proxyuser" };
         db.Proxies.Add(proxy); db.SaveChanges();
 
-        var acc1 = new WhatsAppAccount { OwnerId = user.Id, EngineType = EngineType.Baileys, DisplayName = "Marketing Line", PhoneNumber = "+15550100001", Status = WaAccountStatus.Connected, WarmupState = WarmupState.Ready, ProxyId = proxy.Id, DailyLimit = 1000, SentToday = 120 };
-        var acc2 = new WhatsAppAccount { OwnerId = user.Id, EngineType = EngineType.CloudApi, DisplayName = "Official Business", PhoneNumber = "+15550100002", Status = WaAccountStatus.Connected, WarmupState = WarmupState.Ready, DailyLimit = 5000, SentToday = 340 };
+        // acc1 is a Baileys (unofficial) number → treat as a NEW/warming number with a very low
+        // daily cap so the demo can never trigger a WhatsApp restriction. acc2 is the official
+        // Cloud API (Meta-approved) → an established business number can send more.
+        var acc1 = new WhatsAppAccount { OwnerId = user.Id, EngineType = EngineType.Baileys, DisplayName = "Marketing Line", PhoneNumber = "+15550100001", Status = WaAccountStatus.Connected, WarmupState = WarmupState.Warming, ProxyId = proxy.Id, DailyLimit = 50, SentToday = 0 };
+        var acc2 = new WhatsAppAccount { OwnerId = user.Id, EngineType = EngineType.CloudApi, DisplayName = "Official Business", PhoneNumber = "+15550100002", Status = WaAccountStatus.Connected, WarmupState = WarmupState.Ready, DailyLimit = 500, SentToday = 0 };
         db.WhatsAppAccounts.AddRange(acc1, acc2); db.SaveChanges();
 
         db.AntiBanSettings.AddRange(
-            new AccountAntiBanSettings { AccountId = acc1.Id, MinDelaySec = 6, MaxDelaySec = 14, BatchSize = 40, CooldownMinutes = 5, DailyCap = 800 },
-            new AccountAntiBanSettings { AccountId = acc2.Id, MinDelaySec = 3, MaxDelaySec = 8, BatchSize = 100, CooldownMinutes = 3, DailyCap = 4000 });
+            new AccountAntiBanSettings { AccountId = acc1.Id, MinDelaySec = 45, MaxDelaySec = 90, BatchSize = 10, CooldownMinutes = 15, DailyCap = 50 },
+            new AccountAntiBanSettings { AccountId = acc2.Id, MinDelaySec = 5, MaxDelaySec = 15, BatchSize = 40, CooldownMinutes = 5, DailyCap = 500 });
 
         db.AiSettings.Add(new AiSettings { OwnerId = user.Id, Provider = AiProvider.Local, Model = "local-generator", IsActive = true, SystemPrompt = "You are a friendly sales assistant for Win Master." });
 

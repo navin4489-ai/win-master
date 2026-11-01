@@ -30,6 +30,18 @@ public class BridgeService
             case "disconnected":
                 await WithAccount(ev.AccountId, a => a.Status = WaAccountStatus.Disconnected);
                 break;
+            case "account_restricted":
+                // WhatsApp restricted/banned the number at the connection level. Flag the
+                // account so the campaign worker stops sending and pauses instead of
+                // reconnect-looping into a deeper ban.
+                await WithAccount(ev.AccountId, a =>
+                {
+                    a.Status = WaAccountStatus.Banned;
+                    a.IsRestricted = true;
+                    a.RestrictionReason = Str(ev.Payload, "reason") ?? "restricted by WhatsApp";
+                    a.RestrictedAt = DateTime.UtcNow;
+                });
+                break;
             case "bridge_restarted":
                 // The bridge came up with no live sessions (free-tier restart wipes them).
                 // Flip any accounts still marked Connected to Disconnected so the UI
