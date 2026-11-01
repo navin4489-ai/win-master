@@ -46,6 +46,7 @@ export interface Campaign {
   windowStart?: string; windowEnd?: string; spintaxEnabled: boolean; personalizeMessage: boolean; pacing: Pacing;
   totalRecipients: number; processedCount: number; failedCount: number; progressPercent: number;
   startedAt?: string; completedAt?: string; createdAt: string;
+  pausedByConnection?: boolean; connectionMessage?: string;
 }
 export interface CampaignProgress {
   campaignId: number; status: string; total: number; processed: number; sent: number; delivered: number;
@@ -71,4 +72,5 @@ export interface DashboardStats {
   inbox: { unread: number; threads: number; };
 }
 export interface AuditLog { id: number; userId?: number; action: string; entity?: string; entityId?: string; ip?: string; maskedDetail?: string; createdAt: string; }
+export interface UserActivityReport { userId: number; email: string; displayName: string; role: string; campaignsCreated: number; campaignsCompleted: number; messagesProcessed: number; messagesSent: number; messagesDelivered: number; messagesFailed: number; deliveryRate: number; convertedLeads: number; conversionValue: number; }
 export interface UserTreeNode { id: number; email: string; displayName: string; role: string; children: UserTreeNode[]; }

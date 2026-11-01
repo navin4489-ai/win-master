@@ -41,6 +41,10 @@ public class ReportsController : ApiControllerBase
     [HttpGet("delivery")] public async Task<ActionResult<DeliveryReport>> Delivery(DateTime? from, DateTime? to, int? campaignId)
         => Ok(await _svc.DeliveryAsync(UserId, from, to, campaignId));
     [HttpGet("kpis")] public async Task<ActionResult<KpiReport>> Kpis(DateTime? from, DateTime? to) => Ok(await _svc.KpisAsync(UserId, from, to));
+    /// <summary>Admin/SuperAdmin: activity aggregated user-wise across the whole workspace.</summary>
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    [HttpGet("users")] public async Task<ActionResult<List<UserActivityReport>>> Users(DateTime? from, DateTime? to)
+        => Ok(await _svc.UsersReportAsync(from, to));
 }
 
 [ApiController]

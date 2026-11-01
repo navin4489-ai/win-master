@@ -87,6 +87,8 @@ export class ApiService {
   deleteCampaign(id: number) { return this.http.delete(`${this.base}/campaigns/${id}`); }
   scheduleCampaign(id: number, b: any) { return this.http.post<M.Campaign>(`${this.base}/campaigns/${id}/schedule`, b); }
   campaignAction(id: number, action: string) { return this.http.post<M.Campaign>(`${this.base}/campaigns/${id}/${action}`, {}); }
+  campaignRetryFailed(id: number) { return this.http.post<M.Campaign>(`${this.base}/campaigns/${id}/retry-failed`, {}); }
+  usersReport(q: any) { return this.http.get<M.UserActivityReport[]>(`${this.base}/reports/users`, { params: this.params(q) }); }
   campaignProgress(id: number) { return this.http.get<M.CampaignProgress>(`${this.base}/campaigns/${id}/progress`); }
   campaignRecipients(id: number, q: any) { return this.http.get<M.Paged<M.CampaignRecipient>>(`${this.base}/campaigns/${id}/recipients`, { params: this.params(q) }); }
   campaignReport(id: number, format: string) { return this.http.get(`${this.base}/campaigns/${id}/report`, { params: this.params({ format }), responseType: 'blob' }); }

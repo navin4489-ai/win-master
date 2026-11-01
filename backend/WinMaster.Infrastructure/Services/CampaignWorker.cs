@@ -18,11 +18,23 @@ public class CampaignWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<CampaignWorker> _log;
+    private readonly IWaBridgeClient _bridge;
     private readonly SpintaxService _spintax = new();
     private readonly PersonalizationService _personalize = new();
 
+    public CampaignWorker(IServiceScopeFactory scopes, ILogger<CampaignWorker> log, IWaBridgeClient bridge)
+    { _scopes = scopes; _log = log; _bridge = bridge; }
+
+    // Keeps direct unit-test construction compatible; production uses DI above.
     public CampaignWorker(IServiceScopeFactory scopes, ILogger<CampaignWorker> log)
-    { _scopes = scopes; _log = log; }
+        : this(scopes, log, new DisabledBridgeClient()) { }
+
+    private sealed class DisabledBridgeClient : IWaBridgeClient
+    {
+        public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>("connected");
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -42,7 +54,7 @@ public class CampaignWorker : BackgroundService
 
         // Process every running campaign each tick (round-robin), so one campaign's
         // pacing can never starve the others.
-        var running = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running)
+        var running = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running || (c.Status == CampaignStatus.Paused && c.PausedByConnection))
             .OrderBy(c => c.StartedAt).Select(c => c.Id).ToListAsync(ct);
         foreach (var id in running)
         {
@@ -61,7 +73,7 @@ public class CampaignWorker : BackgroundService
     private async Task ProcessDueAsync(AppDbContext db, IWhatsAppChannelFactory factory, int campaignId, CancellationToken ct)
     {
         var c = await db.Campaigns.Include(x => x.Template).FirstOrDefaultAsync(x => x.Id == campaignId, ct);
-        if (c is null || c.Status != CampaignStatus.Running) return;
+        if (c is null || (c.Status != CampaignStatus.Running && !(c.Status == CampaignStatus.Paused && c.PausedByConnection))) return;
 
         var cp = await db.CampaignCheckpoints.FirstOrDefaultAsync(x => x.CampaignId == campaignId, ct);
         if (cp is null) { cp = new CampaignCheckpoint { CampaignId = campaignId }; db.CampaignCheckpoints.Add(cp); await db.SaveChangesAsync(ct); }
@@ -77,6 +89,7 @@ public class CampaignWorker : BackgroundService
         if (recipient is null) { await CompleteAsync(db, c, ct); return; }
 
         var accounts = await ResolveAccountsAsync(db, c, ct);
+        if (!await EnsureLiveAsync(db, c, accounts, ct)) return;
         recipient.Status = RecipientStatus.Sending;
         await db.SaveChangesAsync(ct);
 
@@ -85,14 +98,26 @@ public class CampaignWorker : BackgroundService
 
         var channel = factory.For(c.EngineType);
         var accountId = accounts.Count == 0 ? (c.AccountId ?? 0) : accounts[cp.RotationIndex % accounts.Count];
-        var result = await channel.SendAsync(accountId, new OutboundMessage(recipient.Phone, body, null, MediaType.None, null, null), ct);
+        var result = await channel.SendAsync(accountId, BuildOutbound(c, recipient.Phone, body), ct);
 
         if (result.Success)
         {
             recipient.Status = RecipientStatus.Sent; recipient.SentAt = DateTime.UtcNow; recipient.MessageId = result.MessageId;
             c.ProcessedCount++;
         }
-        else { recipient.Status = RecipientStatus.Failed; recipient.Error = result.Error; c.FailedCount++; c.ProcessedCount++; }
+        else
+        {
+            var stillLive = true;
+            if (c.EngineType == EngineType.Baileys)
+                stillLive = string.Equals(await _bridge.StatusAsync(accountId, ct), "connected", StringComparison.OrdinalIgnoreCase);
+            if (!stillLive)
+            {
+                recipient.Status = RecipientStatus.Pending;
+                await PauseForConnectionAsync(db, c, accounts, ct);
+                return;
+            }
+            recipient.Status = RecipientStatus.Failed; recipient.Error = result.Error; c.FailedCount++; c.ProcessedCount++;
+        }
 
         cp.LastRecipientId = recipient.Id;
         cp.RotationIndex = c.RotationMode == RotationMode.RoundRobin ? cp.RotationIndex + 1 : cp.RotationIndex;
@@ -118,13 +143,14 @@ public class CampaignWorker : BackgroundService
     public async Task ProcessOneBatchAsync(AppDbContext db, IWhatsAppChannelFactory factory, int campaignId, CancellationToken ct, bool noDelay = false)
     {
         var c = await db.Campaigns.FirstOrDefaultAsync(x => x.Id == campaignId, ct);
-        if (c is null || c.Status != CampaignStatus.Running) return;
+        if (c is null || (c.Status != CampaignStatus.Running && !(c.Status == CampaignStatus.Paused && c.PausedByConnection))) return;
 
         var cp = await db.CampaignCheckpoints.FirstOrDefaultAsync(x => x.CampaignId == campaignId, ct);
         if (cp is null) { cp = new CampaignCheckpoint { CampaignId = campaignId }; db.CampaignCheckpoints.Add(cp); await db.SaveChangesAsync(ct); }
 
         var channel = factory.For(c.EngineType);
         var accounts = await ResolveAccountsAsync(db, c, ct);
+        if (!await EnsureLiveAsync(db, c, accounts, ct)) return;
         int sentThisBatch = 0;
 
         while (sentThisBatch < c.BatchSize)
@@ -148,7 +174,7 @@ public class CampaignWorker : BackgroundService
             recipient.VariantText = body;
 
             var accountId = accounts.Count == 0 ? (c.AccountId ?? 0) : accounts[cp.RotationIndex % accounts.Count];
-            var result = await channel.SendAsync(accountId, new OutboundMessage(recipient.Phone, body, null, MediaType.None, null, null), ct);
+            var result = await channel.SendAsync(accountId, BuildOutbound(c, recipient.Phone, body), ct);
 
             if (result.Success)
             {
@@ -178,6 +204,44 @@ public class CampaignWorker : BackgroundService
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Live-session gate. Returns true when the campaign may send now.
+    /// A disconnected Baileys campaign is paused (auto-retry) and returns false;
+    /// a previously connection-paused campaign that is live again is auto-resumed.</summary>
+    private async Task<bool> EnsureLiveAsync(AppDbContext db, Campaign c, List<int> accounts, CancellationToken ct)
+    {
+        if (c.EngineType != EngineType.Baileys) return true;
+
+        var live = false;
+        foreach (var candidate in accounts)
+        {
+            if (string.Equals(await _bridge.StatusAsync(candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
+        }
+        if (!live)
+        {
+            await PauseForConnectionAsync(db, c, accounts, ct);
+            return false;
+        }
+        if (c.PausedByConnection || c.Status == CampaignStatus.Paused)
+        {
+            c.Status = CampaignStatus.Running;
+            c.PausedByConnection = false;
+            c.ConnectionMessage = null;
+            await db.SaveChangesAsync(ct);
+        }
+        return true;
+    }
+
+    private async Task PauseForConnectionAsync(AppDbContext db, Campaign c, List<int> accounts, CancellationToken ct)
+    {
+        c.Status = CampaignStatus.Paused;
+        c.PausedByConnection = true;
+        c.ConnectionMessage = "WhatsApp disconnected. Scan the QR in Accounts to resume.";
+        await db.SaveChangesAsync(ct);
+        foreach (var accountId in accounts)
+            await _bridge.ConnectAsync(accountId, ct); // starts reconnect/QR generation; safe to repeat
+        _log.LogWarning("Campaign {CampaignId} paused because WhatsApp is disconnected.", c.Id);
+    }
+
     public string BuildMessage(Campaign c, CampaignRecipient r)
     {
         var template = c.Body ?? "";
@@ -195,6 +259,12 @@ public class CampaignWorker : BackgroundService
         }
         if (c.SpintaxEnabled) text = _spintax.Spin(text);
         return text;
+    }
+
+    private static OutboundMessage BuildOutbound(Campaign c, string phone, string body)
+    {
+        var mediaType = c.Template?.MediaType ?? MediaType.None;
+        return new OutboundMessage(phone, body, c.Template?.MediaUrl, mediaType, c.Template?.Buttons, c.Template?.ListMenu);
     }
 }
 

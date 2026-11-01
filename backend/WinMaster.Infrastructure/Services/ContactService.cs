@@ -58,7 +58,7 @@ public class ContactService
     public async Task<ContactDto> AddContactAsync(int ownerId, int groupId, CreateContactRequest req)
     {
         var g = await OwnedGroup(ownerId, groupId);
-        var phone = PhoneUtils.Normalize(req.Phone);
+        var phone = PhoneUtils.NormalizeIndiaDefault(req.Phone);
         if (!PhoneUtils.IsValid(phone)) throw new BusinessException("Invalid phone number.");
         if (await _db.Contacts.AnyAsync(c => c.GroupId == groupId && c.Phone == phone))
             throw new ConflictException("Contact already exists in this group.");
@@ -113,7 +113,7 @@ public class ContactService
         foreach (var row in rows.Skip(1))
         {
             if (phoneIdx >= row.Length) { invalid++; continue; }
-            var phone = PhoneUtils.Normalize(row[phoneIdx]);
+            var phone = PhoneUtils.NormalizeIndiaDefault(row[phoneIdx]);
             if (!PhoneUtils.IsValid(phone)) { invalid++; continue; }
             if (!existing.Add(phone)) { duplicates++; continue; }
             var custom = new Dictionary<string, string>();
@@ -143,7 +143,7 @@ public class ContactService
         await Task.CompletedTask;
         return phones.Select(p =>
         {
-            var n = PhoneUtils.Normalize(p);
+            var n = PhoneUtils.NormalizeIndiaDefault(p);
             var valid = PhoneUtils.IsValid(n);
             bool? wa = valid ? (n.GetHashCode() % 9 != 0) : (bool?)null;
             return new ValidateResult(p, valid, wa, valid ? null : "Invalid format");

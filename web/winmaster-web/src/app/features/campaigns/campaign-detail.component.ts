@@ -24,10 +24,23 @@ import { Campaign, CampaignProgress, CampaignRecipient } from '../../core/models
         @if (c.status === 'Paused') { <button class="btn btn-primary" (click)="action('resume')">Resume</button> }
         @if (c.status === 'Running' || c.status === 'Paused') { <button class="btn btn-danger" (click)="action('stop')">Stop</button> }
         @if (c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed') { <button class="btn btn-primary" (click)="action('restart')">↻ Restart</button> }
+        @if (c.status !== 'Running' && c.failedCount > 0) { <button class="btn btn-ghost" (click)="retryFailed()" title="Re-send only to recipients that failed">Retry failed ({{ c.failedCount }})</button> }
         <button class="btn btn-ghost" (click)="download('csv')">Export CSV</button>
         <button class="btn btn-ghost" (click)="download('xlsx')">Export XLSX</button>
       </div>
     </div>
+
+    @if (c.pausedByConnection) {
+      <div class="card card-pad" style="margin-bottom:1rem">
+        <div class="between">
+          <div>
+            <strong style="color:var(--warning,#d97706)">Paused — WhatsApp disconnected</strong>
+            <div class="muted">{{ c.connectionMessage || 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.' }}</div>
+          </div>
+          <button class="btn btn-ghost" (click)="refresh()">Check now</button>
+        </div>
+      </div>
+    }
 
     @if (progress(); as p) {
       <div class="card card-pad" style="margin-bottom:1rem">
@@ -84,6 +97,9 @@ export class CampaignDetailComponent implements OnInit, OnDestroy {
   }
   action(a: string) {
     this.api.campaignAction(this.id, a).subscribe({ next: c => { this.campaign.set(c); this.toast.success(`Campaign ${a}ed`); this.refresh(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') });
+  }
+  retryFailed() {
+    this.api.campaignRetryFailed(this.id).subscribe({ next: c => { this.campaign.set(c); this.toast.success('Retrying failed recipients'); this.refresh(); }, error: e => this.toast.error(e?.error?.detail || 'Failed to retry') });
   }
   download(fmt: string) {
     this.api.campaignReport(this.id, fmt).subscribe(blob => {

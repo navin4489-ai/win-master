@@ -76,7 +76,7 @@ import { Contact } from '../../core/models';
     <div class="modal-backdrop" (click)="showAdd.set(false)"><div class="modal" (click)="$event.stopPropagation()">
       <div class="modal-head">Add contact to group</div>
       <div class="modal-body">
-        <div class="field"><label>Phone number</label><input class="input" [(ngModel)]="addForm.phone" placeholder="+15551234567" /></div>
+        <div class="field"><label>Phone number</label><input class="input" [(ngModel)]="addForm.phone" placeholder="9876543210 or +91… (auto-adds +91)" /></div>
         <div class="field"><label>Name</label><input class="input" [(ngModel)]="addForm.name" placeholder="Contact name" /></div>
         <div class="field"><label>Tags (comma separated)</label><input class="input" [(ngModel)]="addForm.tags" placeholder="lead,priority" /></div>
       </div>

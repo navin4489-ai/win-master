@@ -47,12 +47,14 @@ public class ProxiesController : ApiControllerBase
 public class TemplatesController : ApiControllerBase
 {
     private readonly TemplateService _svc;
-    public TemplatesController(TemplateService svc) => _svc = svc;
+    private readonly AiService _ai;
+    public TemplatesController(TemplateService svc, AiService ai) { _svc = svc; _ai = ai; }
 
     [HttpGet] public async Task<ActionResult<List<TemplateDto>>> List() => Ok(await _svc.ListAsync(UserId));
     [HttpPost] public async Task<ActionResult<TemplateDto>> Create(CreateTemplateRequest req) => Ok(await _svc.CreateAsync(UserId, req));
     [HttpPut("{id:int}")] public async Task<ActionResult<TemplateDto>> Update(int id, CreateTemplateRequest req) => Ok(await _svc.UpdateAsync(UserId, id, req));
     [HttpDelete("{id:int}")] public async Task<IActionResult> Delete(int id) { await _svc.DeleteAsync(UserId, id); return NoContent(); }
+    [HttpPost("ai-generate")] public async Task<ActionResult<AiGenerateResponse>> AiGenerate(AiGenerateRequest req) => Ok(await _ai.GenerateAsync(UserId, req));
 }
 
 [ApiController]

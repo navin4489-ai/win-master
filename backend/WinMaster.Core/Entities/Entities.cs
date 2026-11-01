@@ -197,6 +197,9 @@ public class Campaign : BaseEntity
     public int FailedCount { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    /// <summary>True only when the worker paused this campaign because WhatsApp disconnected.</summary>
+    public bool PausedByConnection { get; set; }
+    [MaxLength(500)] public string? ConnectionMessage { get; set; }
 
     public ICollection<CampaignRecipient> Recipients { get; set; } = new List<CampaignRecipient>();
 }

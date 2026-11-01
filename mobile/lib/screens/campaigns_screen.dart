@@ -66,6 +66,9 @@ class CampaignDetailScreen extends ConsumerStatefulWidget {
 class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
   CampaignProgress? _p;
   String _name = 'Campaign';
+  bool _pausedByConnection = false;
+  String _connectionMessage = '';
+  int _failedCount = 0;
   Timer? _timer;
 
   @override
@@ -84,7 +87,14 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
   Future<void> _load() async {
     try {
       final c = await ref.read(apiProvider).get('/api/campaigns/${widget.id}');
-      if (mounted) setState(() => _name = c['name'] ?? 'Campaign');
+      if (mounted) {
+        setState(() {
+          _name = c['name'] ?? 'Campaign';
+          _pausedByConnection = c['pausedByConnection'] == true;
+          _connectionMessage = c['connectionMessage']?.toString() ?? '';
+          _failedCount = (c['failedCount'] as num?)?.toInt() ?? 0;
+        });
+      }
     } catch (_) {}
     _poll();
   }
@@ -101,6 +111,18 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
       await ref.read(apiProvider).post('/api/campaigns/${widget.id}/$a');
       if (mounted) showOk(context, 'Campaign ${a}ed');
       _poll();
+      _load();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _retryFailed() async {
+    try {
+      await ref.read(apiProvider).post('/api/campaigns/${widget.id}/retry-failed');
+      if (mounted) showOk(context, 'Retrying failed recipients');
+      _poll();
+      _load();
     } catch (e) {
       if (mounted) showError(context, e);
     }
@@ -114,6 +136,29 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
       body: p == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(padding: const EdgeInsets.all(16), children: [
+              if (_pausedByConnection)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFF59E0B)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.wifi_off, color: Color(0xFFB45309)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('Paused — WhatsApp disconnected', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFB45309))),
+                        const SizedBox(height: 2),
+                        Text(_connectionMessage.isEmpty
+                            ? 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.'
+                            : _connectionMessage, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E))),
+                      ]),
+                    ),
+                  ]),
+                ),
               Row(children: [StatusChip(p.status), const Spacer(), Text('${p.processed}/${p.total}')]),
               const SizedBox(height: 12),
               LinearProgressIndicator(
@@ -143,6 +188,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
                   OutlinedButton.icon(onPressed: () => _action('stop'), icon: const Icon(Icons.stop), label: const Text('Stop')),
                 if (p.status == 'Completed' || p.status == 'Stopped' || p.status == 'Failed')
                   FilledButton.icon(onPressed: () => _action('restart'), icon: const Icon(Icons.refresh), label: const Text('Restart')),
+                if (p.status != 'Running' && _failedCount > 0)
+                  OutlinedButton.icon(onPressed: _retryFailed, icon: const Icon(Icons.replay), label: Text('Retry failed ($_failedCount)')),
               ]),
             ]),
     );

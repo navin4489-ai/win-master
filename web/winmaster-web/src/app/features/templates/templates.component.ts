@@ -27,7 +27,9 @@ import { Template } from '../../core/models';
       <div class="modal-body">
         <div class="field"><label>Name</label><input class="input" [(ngModel)]="form.name" /></div>
         <div class="field"><label>Category</label><input class="input" [(ngModel)]="form.category" /></div>
-        <div class="field"><label>Body (supports {{ '{{Name}}' }} and {{ '{a|b}' }} spintax)</label><textarea class="input" rows="4" [(ngModel)]="form.body"></textarea></div>
+        <div class="field"><label class="between">Body (supports {{ '{{Name}}' }} and {{ '{a|b}' }} spintax)
+          <button class="btn btn-ghost btn-sm" type="button" (click)="aiGenerate()" [disabled]="aiBusy()">{{ aiBusy() ? '…' : '✨ AI generate' }}</button>
+        </label><textarea class="input" rows="4" [(ngModel)]="form.body" placeholder="Describe your offer in the name/prompt, then let AI draft it"></textarea></div>
         <div class="flex gap">
           <div class="field" style="flex:1"><label>Media type</label><select class="input" [(ngModel)]="form.mediaType"><option>None</option><option>Image</option><option>Document</option><option>Video</option><option>Audio</option></select></div>
           <div class="field" style="flex:2"><label>Attachment</label>
@@ -65,7 +67,7 @@ import { Template } from '../../core/models';
 export class TemplatesComponent implements OnInit {
   private api = inject(ApiService); private toast = inject(ToastService);
   items = signal<Template[]>([]); loading = signal(true); show = signal(false);
-  uploading = signal(false);
+  uploading = signal(false); aiBusy = signal(false);
   form: any = {};
   ngOnInit() { this.load(); }
   load() { this.loading.set(true); this.api.templates().subscribe({ next: r => { this.items.set(r); this.loading.set(false); }, error: () => { this.loading.set(false); this.toast.error('API unreachable'); } }); }
@@ -92,6 +94,17 @@ export class TemplatesComponent implements OnInit {
     });
   }
   clearFile() { this.form.mediaUrl = ''; }
+
+  aiGenerate() {
+    const prompt = (this.form.body || '').trim() || (this.form.name || '').trim();
+    if (!prompt) { this.toast.error('Enter a name, topic or brief first'); return; }
+    this.aiBusy.set(true);
+    this.api.aiGenerate({ prompt, tone: 'Friendly', goal: 'Drive engagement and sales', includeSpintax: true, includeVariables: true })
+      .subscribe({
+        next: (r: any) => { this.form.body = r.message; this.aiBusy.set(false); this.toast.success('AI draft ready — review and save'); },
+        error: (e: any) => { this.aiBusy.set(false); this.toast.error(e?.error?.detail || 'AI generation failed'); }
+      });
+  }
 
   save() {
     const op = this.form.id ? this.api.updateTemplate(this.form.id, this.form) : this.api.createTemplate(this.form);

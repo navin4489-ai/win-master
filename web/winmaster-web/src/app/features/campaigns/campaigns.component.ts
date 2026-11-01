@@ -41,6 +41,7 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
               @if (c.status === 'Running') { <button class="btn btn-ghost btn-sm" (click)="action(c,'pause')">Pause</button> }
               @if (c.status === 'Running' || c.status === 'Paused') { <button class="btn btn-danger btn-sm" (click)="action(c,'stop')">Stop</button> }
               @if (c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed') { <button class="btn btn-primary btn-sm" (click)="action(c,'restart')">Restart</button> }
+              @if (c.status !== 'Running' && c.failedCount > 0) { <button class="btn btn-ghost btn-sm" (click)="retryFailed(c)" title="Re-send only to recipients that failed">Retry failed ({{ c.failedCount }})</button> }
             </td>
           </tr>
         }
@@ -166,6 +167,9 @@ export class CampaignsComponent implements OnInit, OnDestroy {
   }
   action(c: Campaign, a: string) {
     this.api.campaignAction(c.id, a).subscribe({ next: () => { this.toast.success(`Campaign ${a}ed`); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') });
+  }
+  retryFailed(c: Campaign) {
+    this.api.campaignRetryFailed(c.id).subscribe({ next: () => { this.toast.success('Retrying failed recipients'); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed to retry') });
   }
   badge(s: string) { return { Running: 'badge-blue', Completed: 'badge-green', Scheduled: 'badge-amber', Failed: 'badge-red', Paused: 'badge-amber' }[s] || 'badge-gray'; }
   aiGenerate() {

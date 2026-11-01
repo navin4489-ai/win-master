@@ -82,7 +82,7 @@ public record CampaignDto(int Id, string Name, int? TemplateId, string? Template
     string EngineType, int? AccountId, string RotationMode, string Status, DateTime? ScheduledAt,
     string? WindowStart, string? WindowEnd, bool SpintaxEnabled, bool PersonalizeMessage, PacingDto Pacing,
     int TotalRecipients, int ProcessedCount, int FailedCount, int ProgressPercent,
-    DateTime? StartedAt, DateTime? CompletedAt, DateTime CreatedAt);
+    DateTime? StartedAt, DateTime? CompletedAt, DateTime CreatedAt, bool PausedByConnection, string? ConnectionMessage);
 public record CreateCampaignRequest(string Name, int? TemplateId, string? Body, int GroupId, string EngineType,
     int? AccountId, string RotationMode, DateTime? ScheduledAt, string? WindowStart, string? WindowEnd,
     bool SpintaxEnabled, bool PersonalizeMessage, PacingDto Pacing);
@@ -131,6 +131,9 @@ public record LeadAnalytics(int TotalLeads, int NewLeads, int QualifiedLeads, in
     int LostLeads, decimal ConversionRate, decimal TotalConversionValue,
     List<ChannelAnalytics> ByChannel, List<LeadDto> RecentConversions);
 public record ChannelAnalytics(string Channel, int Leads, int Converted, decimal ConversionRate, decimal Value);
+public record UserActivityReport(int UserId, string Email, string DisplayName, string Role, int CampaignsCreated,
+    int CampaignsCompleted, int MessagesProcessed, int MessagesSent, int MessagesDelivered, int MessagesFailed,
+    decimal DeliveryRate, int ConvertedLeads, decimal ConversionValue);
 public record AiConversationAnalysis(string Summary, string[] IntentSignals, string RecommendedNextAction,
     decimal LeadScore, string SuggestedStatus);
 

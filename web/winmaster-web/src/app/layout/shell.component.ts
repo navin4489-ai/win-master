@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal, HostListener } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 
@@ -9,17 +9,19 @@ interface NavItem { label: string; path: string; icon: string; roles?: string[];
   standalone: true,
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-  <div class="shell">
-    <aside class="sidebar">
+  <div class="shell" [class.nav-open]="menuOpen()">
+    <div class="backdrop" [class.show]="menuOpen()" (click)="closeMenu()"></div>
+    <aside class="sidebar" [class.open]="menuOpen()">
       <div class="brand">
         <img src="logo.svg" alt="" width="34" height="34" />
         <span>Win Master</span>
+        <button class="close-btn" (click)="closeMenu()" aria-label="Close menu">✕</button>
       </div>
       <nav>
         <div class="nav-label">Main</div>
         @for (item of visibleNav(); track item.path) {
           @if (item.section) { <div class="nav-label">{{ item.section }}</div> }
-          <a [routerLink]="item.path" routerLinkActive="active" class="nav-item">
+          <a [routerLink]="item.path" routerLinkActive="active" class="nav-item" (click)="closeMenu()">
             <span class="ic">{{ item.icon }}</span>{{ item.label }}
           </a>
         }
@@ -28,9 +30,12 @@ interface NavItem { label: string; path: string; icon: string; roles?: string[];
     </aside>
     <div class="main">
       <header class="topbar">
+        <button class="hamburger" (click)="toggleMenu()" aria-label="Open menu">
+          <span></span><span></span><span></span>
+        </button>
         <div class="muted crumb">WhatsApp Automation &amp; Marketing</div>
         <div class="flex gap" style="align-items:center">
-          <div style="text-align:right">
+          <div class="user-meta" style="text-align:right">
             <div style="font-weight:600;font-size:.86rem">{{ auth.user()?.displayName }}</div>
             <div class="muted" style="font-size:.72rem">{{ auth.user()?.role }}</div>
           </div>
@@ -52,23 +57,52 @@ interface NavItem { label: string; path: string; icon: string; roles?: string[];
     .nav-item.active { background: linear-gradient(135deg, var(--accent), var(--primary)); color:#fff; box-shadow: 0 6px 16px rgba(18,140,74,.4); }
     .ic { width:20px; text-align:center; font-size:1rem; }
     .side-foot { margin-top:auto; padding:.9rem .7rem .3rem; font-size:.7rem; color:#5b6b82; }
-    .topbar { background:#fff; border-bottom:1px solid var(--border); padding:.75rem 1.4rem; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:10; }
+    .topbar { background:#fff; border-bottom:1px solid var(--border); padding:.75rem 1.4rem; display:flex; align-items:center; gap:.9rem; justify-content:space-between; position:sticky; top:0; z-index:10; }
     .crumb { font-size:.82rem; font-weight:500; }
     .avatar { width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--primary)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; }
     .content { padding: 1.6rem; max-width: 1440px; }
-    @media (max-width: 760px) { .shell { grid-template-columns: 1fr; } .sidebar { display:none; } }
+    .hamburger { display:none; flex-direction:column; gap:4px; background:none; border:none; padding:6px; cursor:pointer; border-radius:8px; }
+    .hamburger span { display:block; width:20px; height:2px; background:#334; border-radius:2px; transition:.2s; }
+    .hamburger:hover { background: var(--border); }
+    .close-btn { display:none; margin-left:auto; background:none; border:none; color:#aab7c9; font-size:1rem; cursor:pointer; padding:.2rem .5rem; border-radius:8px; }
+    .close-btn:hover { background: var(--sidebar-hover); color:#fff; }
+    .backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:40; }
+
+    @media (max-width: 900px) {
+      .content { padding: 1.1rem; }
+      .crumb { display:none; }
+      .hamburger { display:flex; }
+    }
+    @media (max-width: 760px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { position:fixed; top:0; left:0; width:270px; height:100vh; transform:translateX(-100%); transition:transform .24s ease; z-index:50; box-shadow:0 0 40px rgba(0,0,0,.25); }
+      .sidebar.open { transform:translateX(0); }
+      .close-btn { display:block; }
+      .backdrop.show { opacity:1; pointer-events:auto; }
+      .topbar { padding:.7rem 1rem; }
+      .user-meta { display:none; }
+      .content { padding: 1rem .9rem 2rem; }
+    }
   `]
 })
 export class ShellComponent {
   auth = inject(AuthService);
   private router = inject(Router);
+  menuOpen = signal(false);
 
   constructor() {
     // Hydrate the current user (role-based menu) if we have a token but no user yet.
     if (this.auth.accessToken && !this.auth.user()) {
       this.auth.loadMe().subscribe({ error: () => { this.auth.logout(); this.router.navigate(['/login']); } });
     }
+    // Close the drawer on navigation (covers browser back/forward too).
+    this.router.events.subscribe(() => this.closeMenu());
   }
+
+  toggleMenu() { this.menuOpen.update(v => !v); }
+  closeMenu() { this.menuOpen.set(false); }
+  @HostListener('document:keydown.escape') onEsc() { this.closeMenu(); }
+
   nav: NavItem[] = [
     { label: 'Dashboard', path: '/dashboard', icon: '▣' },
     { label: 'Campaigns', path: '/campaigns', icon: '🚀', section: 'Messaging' },

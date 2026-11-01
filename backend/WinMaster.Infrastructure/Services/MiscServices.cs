@@ -256,7 +256,7 @@ public class InboxService
     /// </summary>
     public async Task<InboxMessageDto> SendToAsync(int ownerId, SendToRequest req, IWhatsAppChannelFactory factory)
     {
-        var phone = PhoneUtils.Normalize(req.Phone);
+        var phone = PhoneUtils.NormalizeIndiaDefault(req.Phone);
         if (!PhoneUtils.IsValid(phone)) throw new BusinessException("Invalid phone number.");
 
         // Pick the account: the one requested, else the owner's first connected account.
@@ -338,6 +338,48 @@ public class ReportService
         var totalSent = report.Sent;
         var suspensionRate = totalSent == 0 ? 0 : Math.Round(report.Failed * 100.0 / totalSent, 1);
         return new KpiReport(report.DeliveryRate, 99.4, suspensionRate, campaigns, messages, accounts, licenses);
+    }
+
+    /// <summary>
+    /// Admin/SuperAdmin-only activity report aggregated per user so an admin can see
+    /// every user's campaign and messaging activity. Never exposes message bodies or
+    /// full phone numbers.
+    /// </summary>
+    public async Task<List<UserActivityReport>> UsersReportAsync(DateTime? from, DateTime? to)
+    {
+        var fromD = from ?? DateTime.UtcNow.AddDays(-30);
+        var toD = to ?? DateTime.UtcNow;
+
+        var users = await _db.Users.AsNoTracking().OrderBy(u => u.Id).ToListAsync();
+        var campaigns = await _db.Campaigns.AsNoTracking()
+            .Where(c => c.CreatedAt >= fromD && c.CreatedAt <= toD).ToListAsync();
+        var campaignIds = campaigns.Select(c => c.Id).ToList();
+        var recipients = await _db.CampaignRecipients.AsNoTracking()
+            .Where(r => campaignIds.Contains(r.CampaignId)).ToListAsync();
+        var leads = await _db.LeadProfiles.AsNoTracking()
+            .Where(l => l.CreatedAt >= fromD && l.CreatedAt <= toD).ToListAsync();
+
+        var report = new List<UserActivityReport>();
+        foreach (var u in users)
+        {
+            var uc = campaigns.Where(c => c.OwnerId == u.Id).ToList();
+            var ids = uc.Select(c => c.Id).ToList();
+            var ur = recipients.Where(r => ids.Contains(r.CampaignId)).ToList();
+            var processed = ur.Count;
+            var sent = ur.Count(r => r.Status >= RecipientStatus.Sent);
+            var delivered = ur.Count(r => r.Status is RecipientStatus.Delivered or RecipientStatus.Read);
+            var failed = ur.Count(r => r.Status == RecipientStatus.Failed);
+            var ul = leads.Where(l => l.OwnerId == u.Id).ToList();
+            report.Add(new UserActivityReport(
+                u.Id, u.Email, u.DisplayName, u.Role.ToString(),
+                uc.Count,
+                uc.Count(c => c.Status == CampaignStatus.Completed),
+                processed, sent, delivered, failed,
+                sent == 0 ? 0 : (decimal)Math.Round(delivered * 100.0 / sent, 1),
+                ul.Count(l => l.IsConverted),
+                ul.Where(l => l.IsConverted).Sum(l => l.ConversionValue ?? 0)));
+        }
+        return report;
     }
 
     public async Task<DashboardStats> DashboardAsync(int ownerId)

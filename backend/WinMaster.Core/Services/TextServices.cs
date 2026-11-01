@@ -69,6 +69,19 @@ public static class PhoneUtils
         return n.Length >= 10 && n.Length <= 15;
     }
 
+    /// <summary>Normalizes local Indian mobile input to +91XXXXXXXXXX while preserving
+    /// an explicitly supplied international country code.</summary>
+    public static string NormalizeIndiaDefault(string raw)
+    {
+        var value = (raw ?? "").Trim();
+        var digits = new string(value.Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("0091")) digits = digits[2..];
+        if (digits.StartsWith("0") && digits.Length == 11) digits = digits[1..]; // trunk prefix
+        if (digits.StartsWith("91") && digits.Length == 12) return "+" + digits;
+        if (digits.Length == 10 && digits[0] is >= '6' and <= '9') return "+91" + digits;
+        return value.StartsWith("+") ? "+" + digits : digits;
+    }
+
     public static string Mask(string phone)
     {
         var n = Normalize(phone);

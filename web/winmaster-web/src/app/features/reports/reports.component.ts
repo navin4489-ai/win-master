@@ -1,13 +1,14 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
-import { DeliveryReport, KpiReport } from '../../core/models';
+import { DeliveryReport, KpiReport, UserActivityReport } from '../../core/models';
 
 @Component({
   selector: 'app-reports',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, DecimalPipe],
   template: `
   <div class="page-head"><h1>Reports</h1></div>
   @if (kpi(); as k) {
@@ -38,6 +39,36 @@ import { DeliveryReport, KpiReport } from '../../core/models';
       <div class="legend muted"><span class="dot green"></span> Delivered <span class="dot red"></span> Failed</div>
     </div>
   }
+
+  @if (isAdmin()) {
+    <div class="card" style="margin-top:1.3rem">
+      <div class="card-pad between">
+        <h3>User activity</h3>
+        <span class="muted">Every user's campaigns & messaging · last 30 days</span>
+      </div>
+      <table class="table">
+        <thead><tr><th>User</th><th>Role</th><th>Campaigns</th><th>Completed</th><th>Processed</th><th>Sent</th><th>Delivered</th><th>Failed</th><th>Delivery %</th><th>Leads</th><th>Value</th></tr></thead>
+        <tbody>
+          @for (u of users(); track u.userId) {
+            <tr>
+              <td><b>{{ u.displayName || u.email }}</b><div class="muted" style="font-size:.76rem">{{ u.email }}</div></td>
+              <td><span class="badge badge-gray">{{ u.role }}</span></td>
+              <td>{{ u.campaignsCreated }}</td>
+              <td>{{ u.campaignsCompleted }}</td>
+              <td>{{ u.messagesProcessed }}</td>
+              <td>{{ u.messagesSent }}</td>
+              <td>{{ u.messagesDelivered }}</td>
+              <td [style.color]="u.messagesFailed ? 'var(--danger)' : ''">{{ u.messagesFailed }}</td>
+              <td>{{ u.deliveryRate }}%</td>
+              <td>{{ u.convertedLeads }}</td>
+              <td>{{ u.conversionValue | number:'1.0-0' }}</td>
+            </tr>
+          }
+          @if (!users().length) { <tr><td colspan="11" class="empty">No user activity yet</td></tr> }
+        </tbody>
+      </table>
+    </div>
+  }
   `,
   styles: [`
     .chart { display:flex; gap:.6rem; align-items:flex-end; height:220px; padding:1rem 0; }
@@ -50,12 +81,18 @@ import { DeliveryReport, KpiReport } from '../../core/models';
   `]
 })
 export class ReportsComponent implements OnInit {
-  private api = inject(ApiService); private toast = inject(ToastService);
+  private api = inject(ApiService); private toast = inject(ToastService); private auth = inject(AuthService);
   report = signal<DeliveryReport | null>(null);
   kpi = signal<KpiReport | null>(null);
+  users = signal<UserActivityReport[]>([]);
+  isAdmin = signal(false);
   ngOnInit() {
     this.api.delivery({}).subscribe({ next: r => this.report.set(r), error: () => this.toast.error('API unreachable') });
     this.api.kpis({}).subscribe({ next: k => this.kpi.set(k) });
+    this.isAdmin.set(this.auth.hasRole('Admin', 'SuperAdmin'));
+    if (this.isAdmin()) {
+      this.api.usersReport({}).subscribe({ next: u => this.users.set(u), error: () => {} });
+    }
   }
   h(v: number, r: DeliveryReport) { const max = Math.max(1, ...r.series.map(s => s.delivered + s.failed)); return Math.round(v * 100 / max); }
 }

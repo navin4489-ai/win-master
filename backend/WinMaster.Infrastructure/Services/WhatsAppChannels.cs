@@ -23,12 +23,13 @@ public class MetaCloudChannel : IWhatsAppChannel
         {
             // In a full deployment the account's phoneNumberId + accessToken are resolved and used here.
             var client = _http.CreateClient("meta");
-            var body = new
+            object body = message.MediaType switch
             {
-                messaging_product = "whatsapp",
-                to = message.ToPhone,
-                type = "text",
-                text = new { body = message.Body }
+                MediaType.Image when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "image", image = new { link = message.MediaUrl, caption = message.Body } },
+                MediaType.Video when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "video", video = new { link = message.MediaUrl, caption = message.Body } },
+                MediaType.Document when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "document", document = new { link = message.MediaUrl, caption = message.Body } },
+                MediaType.Audio when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "audio", audio = new { link = message.MediaUrl } },
+                _ => new { messaging_product = "whatsapp", to = message.ToPhone, type = "text", text = new { body = message.Body } }
             };
             // Endpoint is configured per account; we simulate a successful dispatch id when no live creds.
             var messageId = $"wamid.cloud.{Guid.NewGuid():N}";

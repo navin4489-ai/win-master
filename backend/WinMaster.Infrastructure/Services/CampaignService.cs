@@ -89,16 +89,16 @@ public class CampaignService
                     throw new BusinessException("Cannot start from current state.");
                 await EnsureConnectedAsync(c);
                 await EnsureRecipientsAsync(c);
-                c.Status = CampaignStatus.Running; c.StartedAt ??= DateTime.UtcNow;
+                c.Status = CampaignStatus.Running; c.PausedByConnection = false; c.ConnectionMessage = null; c.StartedAt ??= DateTime.UtcNow;
                 break;
             case "pause":
                 if (c.Status != CampaignStatus.Running) throw new BusinessException("Only running campaigns can be paused.");
-                c.Status = CampaignStatus.Paused; break;
+                c.Status = CampaignStatus.Paused; c.PausedByConnection = false; c.ConnectionMessage = null; break;
             case "resume":
                 if (c.Status != CampaignStatus.Paused) throw new BusinessException("Only paused campaigns can be resumed.");
-                c.Status = CampaignStatus.Running; break;
+                c.Status = CampaignStatus.Running; c.PausedByConnection = false; c.ConnectionMessage = null; break;
             case "stop":
-                c.Status = CampaignStatus.Stopped; c.CompletedAt = DateTime.UtcNow; break;
+                c.Status = CampaignStatus.Stopped; c.PausedByConnection = false; c.ConnectionMessage = null; c.CompletedAt = DateTime.UtcNow; break;
             case "restart":
                 // Re-send the same message to the same numbers: reset every recipient to
                 // Pending, clear per-recipient results and the checkpoint, then run again.
@@ -117,10 +117,49 @@ public class CampaignService
                 if (cp is not null) _db.CampaignCheckpoints.Remove(cp);
                 c.ProcessedCount = 0; c.FailedCount = 0; c.CompletedAt = null;
                 c.StartedAt = DateTime.UtcNow;
-                c.Status = CampaignStatus.Running;
+                c.Status = CampaignStatus.Running; c.PausedByConnection = false; c.ConnectionMessage = null;
                 break;
             default: throw new BusinessException("Unknown action.");
         }
+        await _db.SaveChangesAsync();
+        return Map(c);
+    }
+
+    /// <summary>
+    /// Retries ONLY the failed recipients: successful/delivered/read rows are preserved.
+    /// Failed rows go back to Pending, counts are recomputed and the campaign resumes.
+    /// </summary>
+    public async Task<CampaignDto> RetryFailedAsync(int ownerId, int id)
+    {
+        var c = await Owned(ownerId, id);
+        if (c.Status == CampaignStatus.Running)
+            throw new BusinessException("Stop or pause the campaign before retrying failed recipients.");
+
+        var failedCount = await _db.CampaignRecipients.CountAsync(r => r.CampaignId == c.Id && r.Status == RecipientStatus.Failed);
+        if (failedCount == 0)
+            throw new BusinessException("This campaign has no failed recipients to retry.");
+
+        await EnsureConnectedAsync(c);
+
+        await _db.CampaignRecipients.Where(r => r.CampaignId == c.Id && r.Status == RecipientStatus.Failed).ExecuteUpdateAsync(s => s
+            .SetProperty(r => r.Status, RecipientStatus.Pending)
+            .SetProperty(r => r.SentAt, (DateTime?)null)
+            .SetProperty(r => r.DeliveredAt, (DateTime?)null)
+            .SetProperty(r => r.ReadAt, (DateTime?)null)
+            .SetProperty(r => r.Error, (string?)null)
+            .SetProperty(r => r.MessageId, (string?)null));
+
+        // Recompute counts from surviving rows (Sent/Delivered/Read are kept).
+        c.ProcessedCount = await _db.CampaignRecipients.CountAsync(r => r.CampaignId == c.Id && r.Status != RecipientStatus.Pending && r.Status != RecipientStatus.Sending);
+        c.FailedCount = 0;
+        c.CompletedAt = null;
+        c.PausedByConnection = false; c.ConnectionMessage = null;
+        c.Status = CampaignStatus.Running;
+
+        // Remove the checkpoint so the worker picks the retried rows from the top.
+        var cp = await _db.CampaignCheckpoints.FirstOrDefaultAsync(x => x.CampaignId == c.Id);
+        if (cp is not null) _db.CampaignCheckpoints.Remove(cp);
+
         await _db.SaveChangesAsync();
         return Map(c);
     }
@@ -266,6 +305,7 @@ public class CampaignService
             c.EngineType.ToString(), c.AccountId, c.RotationMode.ToString(), c.Status.ToString(), c.ScheduledAt,
             c.WindowStart?.ToString(), c.WindowEnd?.ToString(), c.SpintaxEnabled, c.PersonalizeMessage,
             new PacingDto(c.MinDelaySec, c.MaxDelaySec, c.BatchSize, c.CooldownMinutes),
-            c.TotalRecipients, c.ProcessedCount, c.FailedCount, progress, c.StartedAt, c.CompletedAt, c.CreatedAt);
+            c.TotalRecipients, c.ProcessedCount, c.FailedCount, progress, c.StartedAt, c.CompletedAt, c.CreatedAt,
+            c.PausedByConnection, c.ConnectionMessage);
     }
 }
