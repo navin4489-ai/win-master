@@ -1,0 +1,9 @@
+# Caddy reverse proxy with automatic HTTPS (free Let's Encrypt certificate).
+# {$DOMAIN} is read from the DOMAIN variable in deploy/.env.
+# Caddy obtains and renews the TLS cert automatically once the domain's A record
+# points to this VM and ports 80 + 443 are open.
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:10000
+}

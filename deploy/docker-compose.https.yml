@@ -1,0 +1,72 @@
+# Win Master — always-on VM stack WITH automatic HTTPS (Caddy).
+#
+# Same as docker-compose.yml, but Caddy sits in front and gets a free Let's Encrypt
+# TLS certificate automatically for your domain, serving the app over https://.
+#
+# Prereqs: a domain's A record already points to this VM's public IP, and ports
+# 80 AND 443 are open (cloud security list + VM firewall).
+#
+# Usage (on the VM, from the repo root):
+#   cp deploy/.env.example deploy/.env      # set secrets AND set DOMAIN=your.domain
+#   docker compose -f deploy/docker-compose.https.yml --env-file deploy/.env up -d --build
+#
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:10000
+      Database__Provider: Postgres
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Disable"
+      Jwt__Secret: ${JWT_SECRET}
+      License__SigningSecret: ${LICENSE_SIGNING_SECRET}
+      Bridge__Key: ${BRIDGE_KEY}
+      Bridge__BaseUrl: http://localhost:3001
+      BRIDGE_PORT: "3001"
+      SESSIONS_DIR: /app/bridge/sessions
+      API_BASE_URL: http://localhost:10000
+    volumes:
+      - sessions:/app/bridge/sessions
+    # No host ports — only Caddy is exposed to the internet; it proxies to the app.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  sessions:
+  caddy_data:
+  caddy_config:

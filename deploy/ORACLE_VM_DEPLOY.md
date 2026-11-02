@@ -51,6 +51,21 @@ newgrp docker   # or log out and back in
 
 ## 3. Get the code and configure secrets
 
+### Fastest: one-command installer
+This installs Docker, clones the repo, generates strong secrets automatically, and starts everything:
+
+```bash
+# Plain HTTP (open http://<vm-ip>/ after it finishes):
+curl -fsSL https://raw.githubusercontent.com/navin4489-ai/win-master/main/deploy/install.sh | bash
+
+# OR with automatic HTTPS for your domain (A record must already point to this VM,
+# and ports 80 + 443 open):
+curl -fsSL https://raw.githubusercontent.com/navin4489-ai/win-master/main/deploy/install.sh | DOMAIN=winmaster.yourdomain.com bash
+```
+Then skip to **step 5** (or just open the URL it prints). Re-running the installer
+later updates the app to the latest code and keeps your existing secrets.
+
+### Or do it manually
 ```bash
 git clone https://github.com/navin4489-ai/win-master.git
 cd win-master
@@ -60,15 +75,21 @@ nano deploy/.env        # set strong random values (see below)
 
 Generate secrets on the VM and paste them in:
 ```bash
-openssl rand -base64 48   # run 4 times → POSTGRES_PASSWORD, JWT_SECRET, LICENSE_SIGNING_SECRET, BRIDGE_KEY
+openssl rand -base64 48   # run a few times → POSTGRES_PASSWORD, JWT_SECRET, LICENSE_SIGNING_SECRET, BRIDGE_KEY
 ```
 
 ---
 
-## 4. Build and start
+## 4. Build and start (manual path)
 
+Plain HTTP:
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+```
+
+Automatic HTTPS (set `DOMAIN=` in deploy/.env first; A record must point here, ports 80+443 open):
+```bash
+docker compose -f deploy/docker-compose.https.yml --env-file deploy/.env up -d --build
 ```
 First build takes a few minutes. Check it's up:
 ```bash
@@ -83,10 +104,13 @@ Log in with the seeded admin (`admin@winmaster.io` / `Win@12345`) and **change t
 
 ## 5. Point your domain (optional)
 
-To use `winmaster.wintechinov.com` (or any domain) on this VM instead of/in addition to Render:
-- In Cloudflare DNS, set an **A record**: `winmaster` → `<public-ip>` (DNS-only, grey cloud, to start).
-- The app serves on port 80. For HTTPS, add Caddy/Traefik later, or enable Cloudflare's proxy
-  (orange cloud) with "Flexible" SSL as a quick start.
+To use `winmaster.wintechinov.com` (or any domain) on this VM:
+- In Cloudflare DNS, set an **A record**: `winmaster` → `<public-ip>`.
+- **For automatic HTTPS:** set `DOMAIN=` in `deploy/.env` and use `docker-compose.https.yml`
+  (or run the installer with `DOMAIN=...`). Caddy fetches a free Let's Encrypt certificate
+  automatically — set the Cloudflare record to **DNS-only (grey cloud)** so Caddy can validate,
+  and ensure ports **80 and 443** are open in both firewalls. Then open `https://<your-domain>/`.
+- **Quick HTTP-only alternative:** enable Cloudflare's proxy (orange cloud) with "Flexible" SSL.
 
 ---
 
