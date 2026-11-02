@@ -82,6 +82,16 @@ class AccountsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _clearRestriction(BuildContext context, WidgetRef ref, WaAccount a) async {
+    try {
+      await ref.read(apiProvider).post('/api/whatsapp-accounts/${a.id}/clear-restriction');
+      ref.invalidate(accountsProvider);
+      if (context.mounted) showOk(context, 'Restriction cleared — usable again within safe limits');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
   Future<void> _antiBan(BuildContext context, WidgetRef ref, WaAccount a) async {
     Map<String, dynamic> s;
     try {
@@ -182,6 +192,13 @@ class AccountsScreen extends ConsumerWidget {
                                   ),
                                 ),
                               ]),
+                            ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                onPressed: () => _clearRestriction(context, ref, a),
+                                child: const Text('Clear & use again'),
+                              ),
                             ),
                           ],
                           const SizedBox(height: 10),

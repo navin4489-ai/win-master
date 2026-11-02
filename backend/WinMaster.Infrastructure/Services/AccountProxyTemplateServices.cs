@@ -41,10 +41,17 @@ public class AccountService
         {
             OwnerId = ownerId, EngineType = engine, PhoneNumber = req.PhoneNumber, DisplayName = req.DisplayName,
             ProxyId = req.ProxyId,
+            // A brand-new unofficial (Baileys) number must start in warm-up with a low daily
+            // limit, or WhatsApp restricts it on the first cold bulk run. The official Cloud API
+            // is Meta-approved, so it can start ready with a normal limit.
+            WarmupState = engine == EngineType.Baileys ? WarmupState.Warming : WarmupState.Ready,
+            DailyLimit = engine == EngineType.Baileys ? 50 : 1000,
             CredentialsEnc = req.Credentials is null ? null : _enc.Encrypt(JsonSerializer.Serialize(req.Credentials))
         };
         _db.WhatsAppAccounts.Add(acc);
         await _db.SaveChangesAsync();
+        // Conservative anti-ban defaults live on the entity (30-60s delay, batch 15, 10m cooldown,
+        // cap 50) so every new number is protected the moment it is created.
         _db.AntiBanSettings.Add(new AccountAntiBanSettings { AccountId = acc.Id });
         await _db.SaveChangesAsync();
         return acc.ToDto();
@@ -67,6 +74,29 @@ public class AccountService
         var acc = await Owned(ownerId, id);
         _db.WhatsAppAccounts.Remove(acc);
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Manually clears a restriction flag so a wrongly-flagged or recovered number can be used
+    /// again. Also resets the failure-streak counters on this account's campaign checkpoints so
+    /// a stale streak can't immediately re-trip the circuit breaker.
+    /// </summary>
+    public async Task<WaAccountDto> ClearRestrictionAsync(int ownerId, int id)
+    {
+        var acc = await Owned(ownerId, id);
+        acc.IsRestricted = false;
+        acc.RestrictionReason = null;
+        acc.RestrictedAt = null;
+        if (acc.Status == WaAccountStatus.Banned) acc.Status = WaAccountStatus.Disconnected;
+        acc.UpdatedAt = DateTime.UtcNow;
+        // Reset any failure streaks on this owner's campaigns so the breaker starts clean.
+        var cps = await _db.CampaignCheckpoints
+            .Where(cp => _db.Campaigns.Any(c => c.Id == cp.CampaignId && c.OwnerId == ownerId))
+            .ToListAsync();
+        foreach (var cp in cps) cp.ConsecutiveFailures = 0;
+        await _db.SaveChangesAsync();
+        var ban = await _db.AntiBanSettings.FirstOrDefaultAsync(b => b.AccountId == acc.Id);
+        return acc.ToDto(ban);
     }
 
     public async Task<WaAccountDto> ConnectAsync(int ownerId, int id)

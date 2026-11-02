@@ -10,8 +10,8 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _email = TextEditingController(text: 'admin@winmaster.io');
-  final _password = TextEditingController(text: 'Win@12345');
+  final _email = TextEditingController();
+  final _password = TextEditingController();
 
   @override
   void dispose() {
@@ -61,30 +61,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Text('Sign in'),
             ),
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text('Demo accounts', style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90), fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, children: [
-              _chip('Super Admin', 'admin@winmaster.io'),
-              _chip('Reseller', 'reseller@winmaster.io'),
-              _chip('Marketer', 'user@winmaster.io'),
-            ]),
-            const SizedBox(height: 8),
-            const Text('Password: Win@12345', style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90))),
           ]),
         ),
       ),
     );
   }
-
-  Widget _chip(String label, String email) => ActionChip(
-        label: Text(label),
-        onPressed: () {
-          _email.text = email;
-          _password.text = 'Win@12345';
-          _submit();
-        },
-      );
 }

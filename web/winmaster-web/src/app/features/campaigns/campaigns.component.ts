@@ -186,6 +186,7 @@ export class CampaignsComponent implements OnInit, OnDestroy {
       return at && !isNaN(at.getTime()) ? `Daily safe limit — resumes ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Daily safe limit reached';
     }
     if (c.pauseReason === 'restriction') return 'WhatsApp restriction — protecting account';
+    if (c.pauseReason === 'failures') return 'Paused — check contact numbers';
     if (c.pauseReason === 'connection') return 'WhatsApp disconnected';
     return c.connectionMessage || 'Paused';
   }

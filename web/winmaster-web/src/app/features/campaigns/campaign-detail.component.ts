@@ -115,6 +115,7 @@ export class CampaignDetailComponent implements OnInit, OnDestroy {
     const r = this.campaign()?.pauseReason;
     if (r === 'daily_limit') return 'Paused — daily safe limit reached';
     if (r === 'restriction') return 'Paused — WhatsApp is restricting this account';
+    if (r === 'failures') return 'Paused — several sends failed in a row';
     if (r === 'connection') return 'Paused — WhatsApp disconnected';
     return 'Paused';
   }
@@ -131,6 +132,7 @@ export class CampaignDetailComponent implements OnInit, OnDestroy {
         : 'Sending resumes automatically the next day — this protects your WhatsApp number from a restriction.';
     }
     if (c?.pauseReason === 'restriction') return 'Sending is stopped to avoid a ban. The campaign auto-retries after the cool-down; scan the QR if the session dropped.';
+    if (c?.pauseReason === 'failures') return 'Several sends failed in a row — these look like invalid or non-WhatsApp numbers. Your WhatsApp number was NOT restricted. Check the contact list, then press Resume.';
     return 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.';
   }
   rbadge(s: string) { return { Sent: 'badge-blue', Delivered: 'badge-green', Read: 'badge-green', Failed: 'badge-red', Sending: 'badge-amber' }[s] || 'badge-gray'; }

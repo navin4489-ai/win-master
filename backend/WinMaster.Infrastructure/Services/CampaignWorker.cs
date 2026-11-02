@@ -86,6 +86,9 @@ public class CampaignWorker : BackgroundService
             // Connection pauses resume via EnsureLiveAsync once the bridge is live again.
             if (c.PauseReason == "connection") continue;
 
+            // A failure-streak pause needs human action (fix the contact list) → never auto-resume.
+            if (c.PauseReason == "failures") continue;
+
             if (c.PauseReason == "daily_limit" && c.LimitResumeAt.HasValue && now < c.LimitResumeAt.Value)
                 continue; // not yet the next day
 
@@ -213,13 +216,19 @@ public class CampaignWorker : BackgroundService
 
             recipient.Status = RecipientStatus.Failed; recipient.Error = result.Error; c.FailedCount++; c.ProcessedCount++;
             cp.ConsecutiveFailures++;
-            // Failure-streak circuit breaker: a burst of failures is the earliest on-the-wire
-            // sign the number is being throttled — stop before it escalates to a ban.
+            // Failure-streak circuit breaker. A burst of failures stops the campaign so we don't
+            // burn the whole list. But ordinary failures (invalid number / not on WhatsApp) are a
+            // DATA problem, not an account-health problem — so we pause the CAMPAIGN without
+            // flagging the account as restricted. The account is only flagged by a real throttle
+            // error (handled above) or a dropped session. This prevents a bad contact list from
+            // wrongly banning a healthy, connected number.
             if (AccountSafety.IsFailureStreak(cp.ConsecutiveFailures))
             {
-                if (acc != null) { acc.IsRestricted = true; acc.RestrictionReason = $"consecutive failures ({cp.ConsecutiveFailures})"; acc.RestrictedAt = DateTime.UtcNow; }
+                cp.ConsecutiveFailures = 0; // reset so a manual resume starts clean
+                c.Status = CampaignStatus.Paused; c.PausedByConnection = true; c.PauseReason = "failures";
+                c.ConnectionMessage = "Paused after several failed sends in a row. These look like invalid or non-WhatsApp numbers — check the contact list, then resume. Your WhatsApp number was NOT restricted.";
                 await db.SaveChangesAsync(ct);
-                await PauseForRestrictionAsync(db, c, acc, $"consecutive send failures ({cp.ConsecutiveFailures})", ct);
+                _log.LogWarning("Campaign {Id} paused after a failure streak (likely bad numbers); account {AccId} left healthy.", c.Id, acc?.Id);
                 return;
             }
         }

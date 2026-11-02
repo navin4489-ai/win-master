@@ -18,6 +18,7 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
         @if (a.isRestricted) {
           <div style="margin:.5rem 0;padding:.5rem .6rem;border-radius:8px;background:rgba(220,38,38,.1);color:var(--danger,#dc2626);font-size:.8rem">
             <b>Restricted by WhatsApp</b> — {{ a.restrictionReason || 'sending stopped to protect the number' }}. Campaigns are paused; it recovers automatically after the cool-down.
+            <div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" (click)="clearRestriction(a)">Clear & use again</button></div>
           </div>
         }
         <div class="muted" style="font-size:.8rem;margin:.4rem 0">Sent today {{ a.sentToday }}/{{ safeCap(a) }} safe cap · warmup {{ a.warmupState }}</div>
@@ -123,6 +124,12 @@ export class AccountsComponent implements OnInit, OnDestroy {
   closeQr() { this.stopQrPolling(); this.qrAccount.set(null); this.qrPng.set(null); }
 
   disconnect(a: WaAccount) { this.api.disconnectAccount(a.id).subscribe(() => { this.toast.success('Disconnected'); this.load(); }); }
+  clearRestriction(a: WaAccount) {
+    this.api.clearRestriction(a.id).subscribe({
+      next: () => { this.toast.success('Restriction cleared — you can use this number again (within safe limits)'); this.load(); },
+      error: e => this.toast.error(e?.error?.detail || 'Failed to clear')
+    });
+  }
   remove(a: WaAccount) { if (confirm('Delete account?')) this.api.deleteAccount(a.id).subscribe(() => { this.toast.success('Deleted'); this.load(); }); }
   openAntiBan(a: WaAccount) { this.antiBanAccount.set(a); this.api.antiBan(a.id).subscribe(s => this.antiBan = s); }
   saveAntiBan(a: WaAccount) { this.api.updateAntiBan(a.id, this.antiBan).subscribe(() => { this.toast.success('Saved'); this.antiBanAccount.set(null); }); }

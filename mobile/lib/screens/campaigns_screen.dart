@@ -24,6 +24,8 @@ class CampaignsScreen extends ConsumerWidget {
             : 'Daily safe limit — resumes ${at.toLocal().hour}:${at.toLocal().minute.toString().padLeft(2, '0')}';
       case 'restriction':
         return 'WhatsApp restriction — protecting account';
+      case 'failures':
+        return 'Paused — check contact numbers';
       case 'connection':
         return 'WhatsApp disconnected';
     }
@@ -115,6 +117,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
         return 'Paused — daily safe limit reached';
       case 'restriction':
         return 'Paused — WhatsApp is restricting this account';
+      case 'failures':
+        return 'Paused — several sends failed in a row';
       case 'connection':
         return 'Paused — WhatsApp disconnected';
     }
@@ -130,6 +134,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
             : 'Sending resumes automatically at ${at.toLocal().hour}:${at.toLocal().minute.toString().padLeft(2, '0')} — this protects your WhatsApp number from a restriction.';
       case 'restriction':
         return 'Sending is stopped to avoid a ban. The campaign auto-retries after the cool-down; scan the QR if the session dropped.';
+      case 'failures':
+        return 'Several sends failed in a row — these look like invalid or non-WhatsApp numbers. Your WhatsApp number was NOT restricted. Check the contact list, then press Resume.';
     }
     return 'Scan the QR under Accounts to reconnect. This campaign resumes automatically once connected.';
   }

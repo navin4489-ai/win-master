@@ -166,8 +166,11 @@ public class CampaignSafetyEnforcementTests
 
         var after = await db.Campaigns.FirstAsync(x => x.Id == c.Id);
         Assert.Equal(CampaignStatus.Paused, after.Status);
-        Assert.Equal("restriction", after.PauseReason);
-        Assert.Contains("consecutive send failures", after.ConnectionMessage, StringComparison.OrdinalIgnoreCase);
+        // Ordinary (invalid-number) failures pause the CAMPAIGN but must NOT flag the account.
+        Assert.Equal("failures", after.PauseReason);
+        Assert.Contains("failed sends in a row", after.ConnectionMessage, StringComparison.OrdinalIgnoreCase);
+        var accAfter = await db.WhatsAppAccounts.FirstAsync(a => a.Id == 10);
+        Assert.False(accAfter.IsRestricted, "a bad contact list must never flag the WhatsApp number as restricted");
     }
 
     // ---- A successful send resets the failure streak ----
