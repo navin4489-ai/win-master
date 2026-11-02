@@ -59,11 +59,15 @@ export function normalizeJid(phone) {
 // Safe to call repeatedly; a connection already in progress is reused.
 export async function startSession(accountId) {
   const existing = sessions.get(accountId);
-  // A truly live or in-flight session is reused. But a "connecting" session that has
-  // been sitting without a socket/QR (e.g. the instance slept mid-handshake) is stale —
-  // reset it so this call generates a fresh QR instead of returning "connecting" forever.
+  // A truly live session is reused. A session that is mid-handshake — still "connecting"
+  // recently, OR already showing a QR waiting to be scanned — is ALSO reused so we never
+  // interrupt an in-flight QR. Only a genuinely stale entry (old, with no QR and no progress)
+  // is reset so this call can produce a fresh QR instead of hanging on "connecting" forever.
   if (existing?.status === "connected") return { status: "connected" };
-  if (existing?.connecting && existing?.sock && existing?.startedAt && Date.now() - existing.startedAt < 60_000) {
+  if (existing?.status === "qr" && existing?.qr && existing.qr.expiresAt > Date.now()) {
+    return { status: "qr" };
+  }
+  if (existing?.connecting && existing?.sock && existing?.startedAt && Date.now() - existing.startedAt < 90_000) {
     return { status: existing.status };
   }
   if (existing) {

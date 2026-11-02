@@ -361,14 +361,30 @@ public class CampaignWorker : BackgroundService
 
     private async Task PauseForConnectionAsync(AppDbContext db, Campaign c, List<int> accounts, CancellationToken ct)
     {
+        var wasAlreadyPaused = c.Status == CampaignStatus.Paused && c.PausedByConnection && c.PauseReason == "connection";
         c.Status = CampaignStatus.Paused;
         c.PausedByConnection = true;
         c.PauseReason = "connection";
         c.ConnectionMessage = "WhatsApp disconnected. Scan the QR in Accounts to resume.";
         await db.SaveChangesAsync(ct);
-        foreach (var accountId in accounts)
-            await _bridge.ConnectAsync(accountId, ct); // starts reconnect/QR generation; safe to repeat
-        _log.LogWarning("Campaign {CampaignId} paused because WhatsApp is disconnected.", c.Id);
+
+        // Kick a reconnect ONLY on the transition into the pause, and only for accounts that are
+        // actually idle/disconnected. Re-kicking every tick (every 2s) — or while a QR handshake
+        // is already in flight ("connecting"/"qr") — would restart the socket and prevent the QR
+        // from ever stabilising. A manual Connect from the UI then also works without being churned.
+        if (!wasAlreadyPaused)
+        {
+            foreach (var accountId in accounts)
+            {
+                var status = await _bridge.StatusAsync(accountId, ct);
+                if (!string.Equals(status, "connecting", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(status, "qr", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _bridge.ConnectAsync(accountId, ct);
+                }
+            }
+            _log.LogWarning("Campaign {CampaignId} paused because WhatsApp is disconnected.", c.Id);
+        }
     }
 
     /// <summary>
