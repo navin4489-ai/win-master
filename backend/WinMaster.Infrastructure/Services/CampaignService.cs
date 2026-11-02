@@ -57,6 +57,18 @@ public class CampaignService
         c.BatchSize = req.Pacing.BatchSize; c.CooldownMinutes = req.Pacing.CooldownMinutes;
         c.SpintaxEnabled = req.SpintaxEnabled; c.PersonalizeMessage = req.PersonalizeMessage;
         if (req.AccountId.HasValue) c.AccountId = req.AccountId;
+        if (!string.IsNullOrWhiteSpace(req.EngineType) && Enum.TryParse<EngineType>(req.EngineType, true, out var engine)) c.EngineType = engine;
+        if (!string.IsNullOrWhiteSpace(req.RotationMode) && Enum.TryParse<RotationMode>(req.RotationMode, true, out var rot)) c.RotationMode = rot;
+        c.WindowStart = ParseTime(req.WindowStart); c.WindowEnd = ParseTime(req.WindowEnd);
+        // Changing the target group is only safe before any sending has happened (Draft, no
+        // recipients materialised yet) — otherwise it would orphan the in-progress run.
+        if (req.GroupId != c.GroupId && c.Status == CampaignStatus.Draft
+            && !await _db.CampaignRecipients.AnyAsync(r => r.CampaignId == c.Id))
+        {
+            var group = await _db.ContactGroups.FirstOrDefaultAsync(g => g.Id == req.GroupId && g.OwnerId == ownerId)
+                ?? throw new NotFoundException("Group not found.");
+            c.GroupId = req.GroupId; c.TotalRecipients = group.TotalContacts;
+        }
         c.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return Map(c);
@@ -324,6 +336,6 @@ public class CampaignService
             c.WindowStart?.ToString(), c.WindowEnd?.ToString(), c.SpintaxEnabled, c.PersonalizeMessage,
             new PacingDto(c.MinDelaySec, c.MaxDelaySec, c.BatchSize, c.CooldownMinutes),
             c.TotalRecipients, c.ProcessedCount, c.FailedCount, progress, c.StartedAt, c.CompletedAt, c.CreatedAt,
-            c.PausedByConnection, c.ConnectionMessage, c.PauseReason, c.LimitResumeAt);
+            c.PausedByConnection, c.ConnectionMessage, c.PauseReason, c.LimitResumeAt, c.Body);
     }
 }

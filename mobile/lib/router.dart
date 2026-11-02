@@ -46,6 +46,7 @@ GoRouter buildRouter(Ref ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/', builder: (_, _) => const HomeShell()),
       GoRoute(path: '/campaigns/new', builder: (_, _) => const CampaignCreateScreen()),
+      GoRoute(path: '/campaigns/:id/edit', builder: (_, s) => CampaignCreateScreen(editId: int.parse(s.pathParameters['id']!))),
       GoRoute(path: '/campaigns/:id', builder: (_, s) => CampaignDetailScreen(id: int.parse(s.pathParameters['id']!))),
       GoRoute(path: '/contacts/:id', builder: (_, s) => GroupDetailScreen(groupId: int.parse(s.pathParameters['id']!), groupName: (s.extra as String?) ?? 'Group')),
       GoRoute(path: '/inbox/:id', builder: (_, s) => ChatScreen(threadId: int.parse(s.pathParameters['id']!), thread: s.extra as InboxThread?)),

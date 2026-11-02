@@ -44,7 +44,7 @@ export interface Pacing { minDelaySec: number; maxDelaySec: number; batchSize: n
 export interface Campaign {
   id: number; name: string; templateId?: number | null; templateName?: string; groupId: number; groupName?: string;
   engineType: string; accountId?: number | null; rotationMode: string; status: string; scheduledAt?: string;
-  windowStart?: string; windowEnd?: string; spintaxEnabled: boolean; personalizeMessage: boolean; pacing: Pacing;
+  windowStart?: string; windowEnd?: string; spintaxEnabled: boolean; personalizeMessage: boolean; pacing: Pacing; body?: string;
   totalRecipients: number; processedCount: number; failedCount: number; progressPercent: number;
   startedAt?: string; completedAt?: string; createdAt: string;
   pausedByConnection?: boolean; connectionMessage?: string;

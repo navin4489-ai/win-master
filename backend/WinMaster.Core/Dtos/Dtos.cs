@@ -84,7 +84,7 @@ public record CampaignDto(int Id, string Name, int? TemplateId, string? Template
     string? WindowStart, string? WindowEnd, bool SpintaxEnabled, bool PersonalizeMessage, PacingDto Pacing,
     int TotalRecipients, int ProcessedCount, int FailedCount, int ProgressPercent,
     DateTime? StartedAt, DateTime? CompletedAt, DateTime CreatedAt, bool PausedByConnection, string? ConnectionMessage,
-    string? PauseReason, DateTime? LimitResumeAt);
+    string? PauseReason, DateTime? LimitResumeAt, string? Body);
 public record CreateCampaignRequest(string Name, int? TemplateId, string? Body, int GroupId, string EngineType,
     int? AccountId, string RotationMode, DateTime? ScheduledAt, string? WindowStart, string? WindowEnd,
     bool SpintaxEnabled, bool PersonalizeMessage, PacingDto Pacing);

@@ -6,7 +6,8 @@ import '../widgets/ui.dart';
 import 'campaigns_screen.dart';
 
 class CampaignCreateScreen extends ConsumerStatefulWidget {
-  const CampaignCreateScreen({super.key});
+  final int? editId;
+  const CampaignCreateScreen({super.key, this.editId});
   @override
   ConsumerState<CampaignCreateScreen> createState() => _CampaignCreateScreenState();
 }
@@ -44,12 +45,31 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
       final g = await ref.read(apiProvider).get('/api/contact-groups', query: {'pageSize': 100});
       final t = await ref.read(apiProvider).get('/api/templates') as List;
       final a = await ref.read(apiProvider).get('/api/whatsapp-accounts') as List;
+      Map<String, dynamic>? existing;
+      if (widget.editId != null) {
+        existing = await ref.read(apiProvider).get('/api/campaigns/${widget.editId}') as Map<String, dynamic>;
+      }
       setState(() {
         _groups = Paged.from(g, ContactGroup.fromJson).items;
         _templates = t.map((e) => Template.fromJson(e)).toList();
         _accounts = a.map((e) => WaAccount.fromJson(e)).toList();
-        if (_groups.isNotEmpty) _groupId = _groups.first.id;
-        _preselectAccount();
+        if (existing != null) {
+          _name.text = existing['name'] ?? '';
+          _body.text = existing['body'] ?? '';
+          _groupId = existing['groupId'];
+          _templateId = existing['templateId'];
+          _engine = existing['engineType'] ?? 'Baileys';
+          _accountId = existing['accountId'];
+          _spintax = existing['spintaxEnabled'] == true;
+          final p = existing['pacing'] ?? {};
+          _minDelay = p['minDelaySec'] ?? _minDelay;
+          _maxDelay = p['maxDelaySec'] ?? _maxDelay;
+          _batch = p['batchSize'] ?? _batch;
+          _cooldown = p['cooldownMinutes'] ?? _cooldown;
+        } else {
+          if (_groups.isNotEmpty) _groupId = _groups.first.id;
+          _preselectAccount();
+        }
       });
     } catch (e) {
       if (mounted) showError(context, e);
@@ -94,7 +114,7 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
     }
     setState(() => _saving = true);
     try {
-      await ref.read(apiProvider).post('/api/campaigns', body: {
+      final body = {
         'name': _name.text.trim(),
         'templateId': _templateId,
         'body': _templateId == null ? _body.text : null,
@@ -106,10 +126,15 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
         'spintaxEnabled': _spintax,
         'personalizeMessage': true,
         'pacing': {'minDelaySec': _minDelay, 'maxDelaySec': _maxDelay, 'batchSize': _batch, 'cooldownMinutes': _cooldown},
-      });
+      };
+      if (widget.editId != null) {
+        await ref.read(apiProvider).put('/api/campaigns/${widget.editId}', body: body);
+      } else {
+        await ref.read(apiProvider).post('/api/campaigns', body: body);
+      }
       ref.invalidate(campaignsProvider);
       if (mounted) {
-        showOk(context, 'Campaign created');
+        showOk(context, widget.editId != null ? 'Campaign updated' : 'Campaign created');
         Navigator.pop(context);
       }
     } catch (e) {
@@ -122,7 +147,7 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New Campaign')),
+      appBar: AppBar(title: Text(widget.editId != null ? 'Edit Campaign' : 'New Campaign')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         TextField(controller: _name, decoration: const InputDecoration(labelText: 'Campaign name')),
         const SizedBox(height: 14),
@@ -203,7 +228,7 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
         _slider('Batch size', _batch, 10, 500, (v) => setState(() => _batch = v)),
         _slider('Cooldown (min)', _cooldown, 0, 60, (v) => setState(() => _cooldown = v)),
         const SizedBox(height: 16),
-        FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Creating…' : 'Create campaign')),
+        FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Saving…' : (widget.editId != null ? 'Save changes' : 'Create campaign'))),
       ]),
     );
   }

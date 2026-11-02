@@ -237,6 +237,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
               Wrap(spacing: 10, children: [
                 if (p.status == 'Draft' || p.status == 'Scheduled' || p.status == 'Paused')
                   FilledButton.icon(onPressed: () => _action('start'), icon: const Icon(Icons.play_arrow), label: const Text('Start')),
+                if (p.status == 'Draft' || p.status == 'Scheduled' || p.status == 'Paused')
+                  OutlinedButton.icon(onPressed: () => context.push('/campaigns/${widget.id}/edit').then((_) { _load(); _poll(); }), icon: const Icon(Icons.edit, size: 18), label: const Text('Edit')),
                 if (p.status == 'Running')
                   OutlinedButton.icon(onPressed: () => _action('pause'), icon: const Icon(Icons.pause), label: const Text('Pause')),
                 if (p.status == 'Paused')

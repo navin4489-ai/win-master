@@ -45,6 +45,7 @@ import { Campaign, ContactGroup, Template, WaAccount } from '../../core/models';
             <td>{{ c.processedCount }}/{{ c.totalRecipients }}</td>
             <td class="row-actions">
               @if (c.status === 'Draft' || c.status === 'Scheduled' || c.status === 'Paused') { <button class="btn btn-primary btn-sm" (click)="action(c,'start')">Start</button> }
+              @if (c.status === 'Draft' || c.status === 'Scheduled' || c.status === 'Paused') { <button class="btn btn-ghost btn-sm" (click)="openEdit(c)">Edit</button> }
               @if (c.status === 'Running') { <button class="btn btn-ghost btn-sm" (click)="action(c,'pause')">Pause</button> }
               @if (c.status === 'Running' || c.status === 'Paused') { <button class="btn btn-danger btn-sm" (click)="action(c,'stop')">Stop</button> }
               @if (c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed') { <button class="btn btn-primary btn-sm" (click)="action(c,'restart')">Restart</button> }
@@ -60,7 +61,7 @@ import { Campaign, ContactGroup, Template, WaAccount } from '../../core/models';
   @if (showCreate()) {
     <div class="modal-backdrop" (click)="showCreate.set(false)">
       <div class="modal" (click)="$event.stopPropagation()">
-        <div class="modal-head">Launch a campaign</div>
+        <div class="modal-head">{{ editId() ? 'Edit campaign' : 'Launch a campaign' }}</div>
         <div class="modal-body">
           <div class="field"><label>Name</label><input class="input" [(ngModel)]="form.name" /></div>
           <div class="field"><label>Contact group</label>
@@ -105,7 +106,7 @@ import { Campaign, ContactGroup, Template, WaAccount } from '../../core/models';
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" (click)="showCreate.set(false)">Cancel</button>
-          <button class="btn btn-primary" (click)="create()">Create</button>
+          <button class="btn btn-primary" (click)="create()">{{ editId() ? 'Save changes' : 'Create' }}</button>
         </div>
       </div>
     </div>
@@ -121,6 +122,7 @@ export class CampaignsComponent implements OnInit, OnDestroy {
   accounts = signal<WaAccount[]>([]);
   loading = signal(true);
   showCreate = signal(false);
+  editId = signal<number | null>(null);
   aiBusy = signal(false);
   q = ''; status = '';
   form: any = this.blank();
@@ -157,11 +159,33 @@ export class CampaignsComponent implements OnInit, OnDestroy {
     });
   }
   openCreate() {
+    this.editId.set(null);
     this.form = this.blank();
     this.api.groups({ pageSize: 100 }).subscribe(r => { this.groups.set(r.items); if (r.items[0]) this.form.groupId = r.items[0].id; });
     this.api.templates().subscribe(r => this.templates.set(r));
     this.api.accounts().subscribe(r => { this.accounts.set(r); this.preselectAccount(); });
     this.showCreate.set(true);
+  }
+  // Opens the same modal pre-filled to edit an existing (Draft/Scheduled/Paused) campaign.
+  openEdit(c: Campaign) {
+    this.editId.set(c.id);
+    this.form = {
+      name: c.name, groupId: c.groupId, templateId: c.templateId ?? null, body: c.body ?? '',
+      engineType: c.engineType, accountId: c.accountId ?? null, rotationMode: c.rotationMode,
+      scheduledAt: c.scheduledAt ? this.toLocalInput(c.scheduledAt) : '',
+      spintaxEnabled: c.spintaxEnabled, personalizeMessage: c.personalizeMessage,
+      pacing: { ...c.pacing },
+    };
+    this.api.groups({ pageSize: 100 }).subscribe(r => this.groups.set(r.items));
+    this.api.templates().subscribe(r => this.templates.set(r));
+    this.api.accounts().subscribe(r => this.accounts.set(r));
+    this.showCreate.set(true);
+  }
+  // Converts a UTC ISO string to the local value a datetime-local input expects.
+  private toLocalInput(iso: string): string {
+    const d = new Date(iso); if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => `${n}`.padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   // Accounts matching the currently selected engine (can't send from a CloudApi number on a Baileys campaign).
   accountsForEngine(): WaAccount[] {
@@ -190,10 +214,18 @@ export class CampaignsComponent implements OnInit, OnDestroy {
       // the server (which schedules in UTC) fires at the user's intended moment.
       scheduledAt: this.form.scheduledAt ? new Date(this.form.scheduledAt).toISOString() : null,
     };
-    this.api.createCampaign(b).subscribe({
-      next: () => { this.toast.success('Campaign created'); this.showCreate.set(false); this.load(); },
-      error: e => this.toast.error(e?.error?.detail || 'Failed to create')
-    });
+    const id = this.editId();
+    if (id) {
+      this.api.updateCampaign(id, b).subscribe({
+        next: () => { this.toast.success('Campaign updated'); this.showCreate.set(false); this.editId.set(null); this.load(); },
+        error: e => this.toast.error(e?.error?.detail || 'Failed to update')
+      });
+    } else {
+      this.api.createCampaign(b).subscribe({
+        next: () => { this.toast.success('Campaign created'); this.showCreate.set(false); this.load(); },
+        error: e => this.toast.error(e?.error?.detail || 'Failed to create')
+      });
+    }
   }
   action(c: Campaign, a: string) {
     this.api.campaignAction(c.id, a).subscribe({ next: () => { this.toast.success(`Campaign ${a}ed`); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') });
