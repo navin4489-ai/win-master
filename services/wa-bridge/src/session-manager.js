@@ -57,7 +57,14 @@ export async function warmup() {
 }
 
 export function normalizeJid(phone) {
-  const digits = String(phone).replace(/[^0-9]/g, "");
+  let digits = String(phone).replace(/[^0-9]/g, "");
+  // Strip a trunk "0" from an 11-digit local number (0XXXXXXXXXX).
+  if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  // Safety net: a bare 10-digit Indian mobile (starts 6-9) with no country code would be
+  // rejected by WhatsApp as "not on WhatsApp". Default it to +91 so imported/pasted local
+  // numbers still reach the recipient. Numbers that already include a country code (>10
+  // digits) are left untouched.
+  if (digits.length === 10 && "6789".includes(digits[0])) digits = "91" + digits;
   return `${digits}@s.whatsapp.net`;
 }
 

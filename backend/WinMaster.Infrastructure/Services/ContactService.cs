@@ -70,6 +70,38 @@ public class ContactService
         return c.ToDto();
     }
 
+    /// <summary>
+    /// Re-normalizes every stored contact's phone in a group (e.g. adds the +91 country code to
+    /// bare 10-digit Indian mobiles that were imported without it), and drops any duplicates the
+    /// normalization reveals. Fixes lists that fail with "recipient is not on WhatsApp".
+    /// </summary>
+    public async Task<object> NormalizePhonesAsync(int ownerId, int groupId)
+    {
+        var g = await OwnedGroup(ownerId, groupId);
+        var contacts = await _db.Contacts.Where(c => c.GroupId == groupId).ToListAsync();
+        var seen = new HashSet<string>();
+        int changed = 0, removedDupes = 0;
+        foreach (var c in contacts)
+        {
+            var norm = PhoneUtils.NormalizeIndiaDefault(c.Phone);
+            if (!seen.Add(norm))
+            {
+                // A duplicate once normalized → remove the redundant row.
+                _db.Contacts.Remove(c);
+                removedDupes++;
+                continue;
+            }
+            if (!string.Equals(norm, c.Phone, StringComparison.Ordinal))
+            {
+                c.Phone = norm;
+                changed++;
+            }
+        }
+        g.TotalContacts = seen.Count;
+        await _db.SaveChangesAsync();
+        return new { groupId, totalContacts = seen.Count, normalized = changed, duplicatesRemoved = removedDupes };
+    }
+
     public async Task<ContactDto> UpdateContactAsync(int ownerId, int id, CreateContactRequest req)
     {
         var c = await _db.Contacts.Include(x => x.Group).FirstOrDefaultAsync(x => x.Id == id && x.Group!.OwnerId == ownerId)

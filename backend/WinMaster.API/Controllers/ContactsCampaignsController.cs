@@ -22,6 +22,7 @@ public class ContactGroupsController : ApiControllerBase
     [HttpGet("{id:int}/contacts")] public async Task<ActionResult<PagedResult<ContactDto>>> Contacts(int id, string? q, string? tag, bool? valid, int page = 1, int pageSize = 50)
         => Ok(await _svc.ListContactsAsync(UserId, id, q, tag, valid, Page(page, pageSize)));
     [HttpPost("{id:int}/contacts")] public async Task<ActionResult<ContactDto>> AddContact(int id, CreateContactRequest req) => Ok(await _svc.AddContactAsync(UserId, id, req));
+    [HttpPost("{id:int}/normalize-phones")] public async Task<ActionResult<object>> NormalizePhones(int id) => Ok(await _svc.NormalizePhonesAsync(UserId, id));
 
     [HttpPost("{id:int}/import")]
     [RequestSizeLimit(104_857_600)]

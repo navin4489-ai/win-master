@@ -75,10 +75,18 @@ public static class PhoneUtils
     {
         var value = (raw ?? "").Trim();
         var digits = new string(value.Where(char.IsDigit).ToArray());
+        if (string.IsNullOrEmpty(digits)) return value;
+        // An explicit international prefix ("+" in the source) is always respected as-is.
+        if (value.StartsWith("+")) return "+" + digits;
         if (digits.StartsWith("0091")) digits = digits[2..];
-        if (digits.StartsWith("0") && digits.Length == 11) digits = digits[1..]; // trunk prefix
-        if (digits.StartsWith("91") && digits.Length == 12) return "+" + digits;
+        else if (digits.StartsWith("91") && digits.Length == 12) return "+" + digits;
+        if (digits.StartsWith("0") && digits.Length == 11) digits = digits[1..]; // trunk-prefixed 0XXXXXXXXXX
+        // A bare 10-digit Indian mobile (starts 6–9) → default to +91. This is the common case
+        // for pasted/imported local numbers and prevents "recipient is not on WhatsApp" failures.
         if (digits.Length == 10 && digits[0] is >= '6' and <= '9') return "+91" + digits;
+        // Already has the 91 country code (12 digits) after cleanup.
+        if (digits.StartsWith("91") && digits.Length == 12) return "+" + digits;
+        // Fallback: keep digits; add "+" only if it already looked international.
         return value.StartsWith("+") ? "+" + digits : digits;
     }
 

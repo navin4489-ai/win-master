@@ -21,6 +21,7 @@ import { Contact } from '../../core/models';
         <input type="file" hidden accept=".csv,.xlsx" [disabled]="importing()" (change)="onFile($event)" />
       </label>
       <button class="btn btn-ghost" (click)="validateVisible()">Validate numbers</button>
+      <button class="btn btn-ghost" (click)="fixNumbers()" title="Add the country code (+91) to local numbers so they reach WhatsApp">Fix numbers</button>
     </div>
   </div>
 
@@ -190,5 +191,11 @@ export class GroupDetailComponent implements OnInit {
   validateVisible() {
     const phones = this.items().map(c => c.phone);
     this.api.validatePhones(phones).subscribe(r => { const ok = r.filter(x => x.waRegistered).length; this.toast.success(`${ok}/${r.length} on WhatsApp`); });
+  }
+  fixNumbers() {
+    this.api.normalizePhones(this.id).subscribe({
+      next: r => { this.toast.success(`Fixed ${r.normalized} number(s), removed ${r.duplicatesRemoved} duplicate(s). ${r.totalContacts} contacts.`); this.load(); },
+      error: e => this.toast.error(e?.error?.detail || 'Failed to fix numbers')
+    });
   }
 }
