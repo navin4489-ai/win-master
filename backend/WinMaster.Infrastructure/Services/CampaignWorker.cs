@@ -343,6 +343,40 @@ public class CampaignWorker : BackgroundService
         {
             if (string.Equals(await _bridge.StatusAsync(candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
         }
+
+        if (!live)
+        {
+            // The bridge reports not-connected. But if the account is LINKED (DB status Connected
+            // and it has persisted credentials), the in-memory session was almost certainly just
+            // dropped by a free-tier restart and only needs to rehydrate. Kick a reconnect and
+            // give it a short grace window instead of immediately pausing with "disconnected" —
+            // this is the fix for "account connected but campaign says disconnected".
+            var linked = await db.WhatsAppAccounts
+                .Where(a => accounts.Contains(a.Id) && a.Status == WaAccountStatus.Connected)
+                .Select(a => a.Id).ToListAsync(ct);
+            var hasCreds = linked.Count > 0 && await db.WaSessionStates
+                .AnyAsync(s => linked.Contains(s.AccountId) && s.Key == "creds", ct);
+
+            if (hasCreds)
+            {
+                foreach (var accountId in linked)
+                {
+                    var status = await _bridge.StatusAsync(accountId, ct);
+                    if (!string.Equals(status, "connecting", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(status, "qr", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _bridge.ConnectAsync(accountId, ct); // wake the restore from saved creds
+                    }
+                }
+                // Brief grace: re-check once after giving the socket a moment to come up.
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+                foreach (var candidate in linked)
+                {
+                    if (string.Equals(await _bridge.StatusAsync(candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
+                }
+            }
+        }
+
         if (!live)
         {
             await PauseForConnectionAsync(db, c, accounts, ct);
