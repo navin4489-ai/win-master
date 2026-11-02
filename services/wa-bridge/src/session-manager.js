@@ -18,6 +18,38 @@ async function deps() {
   return { b: _baileys, QRCode: _qrcode };
 }
 
+// Cached WhatsApp protocol version. fetchLatestBaileysVersion() is a network call
+// to WhatsApp and is the single biggest source of QR-generation latency, so we fetch
+// it once and reuse it (refreshing in the background occasionally). This makes every
+// /connect — and especially QR regeneration — near-instant after the first boot.
+let _waVersion = null;
+let _waVersionAt = 0;
+async function getWaVersion(b) {
+  const sixHours = 6 * 60 * 60 * 1000;
+  if (_waVersion && Date.now() - _waVersionAt < sixHours) return _waVersion;
+  try {
+    const { version } = await b.fetchLatestBaileysVersion();
+    _waVersion = version;
+    _waVersionAt = Date.now();
+  } catch {
+    // Keep any previously cached version; only fall back if we never got one.
+    if (!_waVersion) { _waVersion = undefined; }
+  }
+  return _waVersion;
+}
+
+// Pre-warms the heavy Baileys import and the WA version at bridge boot so the first
+// user QR request doesn't pay the cold-start cost (import + version fetch).
+export async function warmup() {
+  try {
+    const { b } = await deps();
+    await getWaVersion(b);
+    logger.info("baileys warmed up");
+  } catch (err) {
+    logger.warn({ err: err.message }, "baileys warmup failed (will retry on first connect)");
+  }
+}
+
 export function normalizeJid(phone) {
   const digits = String(phone).replace(/[^0-9]/g, "");
   return `${digits}@s.whatsapp.net`;
@@ -27,18 +59,26 @@ export function normalizeJid(phone) {
 // Safe to call repeatedly; a connection already in progress is reused.
 export async function startSession(accountId) {
   const existing = sessions.get(accountId);
-  if (existing?.connecting || existing?.status === "connected") {
+  // A truly live or in-flight session is reused. But a "connecting" session that has
+  // been sitting without a socket/QR (e.g. the instance slept mid-handshake) is stale —
+  // reset it so this call generates a fresh QR instead of returning "connecting" forever.
+  if (existing?.status === "connected") return { status: "connected" };
+  if (existing?.connecting && existing?.sock && existing?.startedAt && Date.now() - existing.startedAt < 60_000) {
     return { status: existing.status };
+  }
+  if (existing) {
+    try { existing.sock?.end?.(undefined); } catch { /* ignore */ }
+    sessions.delete(accountId);
   }
 
   const { b, QRCode } = await deps();
-  const { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, Browsers } = b;
+  const { makeWASocket, DisconnectReason, Browsers } = b;
   const { Boom } = await import("@hapi/boom");
   const { useDbAuthState, clearDbAuthState } = await import("./db-auth-state.js");
 
   // Auth state is persisted in the DB (via the API) so sessions survive restarts.
   const { state, saveCreds } = await useDbAuthState(accountId);
-  const { version } = await fetchLatestBaileysVersion();
+  const version = await getWaVersion(b); // cached → fast QR
 
   const sock = makeWASocket({
     version,
@@ -49,7 +89,7 @@ export async function startSession(accountId) {
     syncFullHistory: false,
   });
 
-  sessions.set(accountId, { sock, status: "connecting", connecting: true, qr: null });
+  sessions.set(accountId, { sock, status: "connecting", connecting: true, qr: null, startedAt: Date.now() });
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {

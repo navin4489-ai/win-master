@@ -93,8 +93,11 @@ app.listen(config.port, async () => {
     { port: config.port, apiBaseUrl: config.apiBaseUrl },
     "wa-bridge listening"
   );
+  // Pre-warm Baileys (heavy import + WA version fetch) so the first QR request is fast
+  // instead of paying the cold-start cost while the user waits.
+  const sm = await import("./session-manager.js");
+  sm.warmup().catch(() => {});
   // Restore any persisted sessions from the DB so linked accounts keep working
   // across restarts without a re-scan. Give the API a moment to be ready.
-  const { restoreSessions } = await import("./session-manager.js");
-  setTimeout(() => restoreSessions(), 3000);
+  setTimeout(() => sm.restoreSessions(), 3000);
 });
