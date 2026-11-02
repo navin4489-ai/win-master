@@ -78,6 +78,22 @@ public class CampaignWorker : BackgroundService
     internal async Task AutoResumeAsync(AppDbContext db, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
+
+        // Self-heal: revert any recipient orphaned in "Sending" (e.g. a send was interrupted by a
+        // dropped session, worker restart, or timeout) back to Pending so it is retried instead of
+        // being silently lost. Only touch recipients not updated in the last 2 minutes to avoid
+        // racing an in-flight send.
+        var stuckCutoff = now.AddMinutes(-2);
+        var stuck = await db.CampaignRecipients
+            .Where(r => r.Status == RecipientStatus.Sending && r.UpdatedAt < stuckCutoff)
+            .ToListAsync(ct);
+        if (stuck.Count > 0)
+        {
+            foreach (var r in stuck) r.Status = RecipientStatus.Pending;
+            await db.SaveChangesAsync(ct);
+            _log.LogWarning("Reverted {Count} orphaned 'Sending' recipient(s) to Pending for retry.", stuck.Count);
+        }
+
         var paused = await db.Campaigns
             .Where(c => c.Status == CampaignStatus.Paused && c.PausedByConnection && c.PauseReason != null)
             .ToListAsync(ct);
@@ -174,6 +190,7 @@ public class CampaignWorker : BackgroundService
         if (!await EnsureLiveAsync(db, c, accounts, ct)) return;
 
         recipient.Status = RecipientStatus.Sending;
+        recipient.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
         var body = BuildMessage(c, recipient);
