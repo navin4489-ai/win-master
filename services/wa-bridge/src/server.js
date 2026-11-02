@@ -35,7 +35,8 @@ function accountId(req) {
 // The actual QR/connected result arrives asynchronously via the callback.
 app.post("/sessions/:id/connect", async (req, res) => {
   try {
-    const result = await startSession(accountId(req));
+    const reset = req.query.reset === "true" || req.body?.reset === true;
+    const result = await startSession(accountId(req), { reset });
     res.json(result);
   } catch (err) {
     logger.error({ err: err.message }, "connect failed");

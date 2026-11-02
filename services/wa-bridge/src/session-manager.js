@@ -19,21 +19,27 @@ async function deps() {
 }
 
 // Cached WhatsApp protocol version. fetchLatestBaileysVersion() is a network call
-// to WhatsApp and is the single biggest source of QR-generation latency, so we fetch
-// it once and reuse it (refreshing in the background occasionally). This makes every
-// /connect — and especially QR regeneration — near-instant after the first boot.
+// to WhatsApp and is the single biggest source of QR-generation latency (and can hang
+// on restricted egress), so we fetch it once with a hard timeout and otherwise fall back
+// to a known-good baked-in version. This guarantees makeWASocket is reached quickly and
+// a QR is always produced.
 let _waVersion = null;
 let _waVersionAt = 0;
+// Known-good fallback if the live version fetch is slow/blocked. Baileys tolerates a
+// slightly-behind version for linking; it just needs to be present so the socket starts.
+const FALLBACK_WA_VERSION = [2, 3000, 1015901307];
 async function getWaVersion(b) {
   const sixHours = 6 * 60 * 60 * 1000;
   if (_waVersion && Date.now() - _waVersionAt < sixHours) return _waVersion;
   try {
-    const { version } = await b.fetchLatestBaileysVersion();
+    const fetchP = b.fetchLatestBaileysVersion();
+    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error("version fetch timeout")), 6000));
+    const { version } = await Promise.race([fetchP, timeoutP]);
     _waVersion = version;
     _waVersionAt = Date.now();
   } catch {
-    // Keep any previously cached version; only fall back if we never got one.
-    if (!_waVersion) { _waVersion = undefined; }
+    // Never let a slow/blocked version fetch stop QR generation.
+    if (!_waVersion) { _waVersion = FALLBACK_WA_VERSION; _waVersionAt = Date.now(); }
   }
   return _waVersion;
 }
@@ -57,7 +63,18 @@ export function normalizeJid(phone) {
 
 // Starts (or restarts) a Baileys socket for an account and wires its lifecycle.
 // Safe to call repeatedly; a connection already in progress is reused.
-export async function startSession(accountId) {
+// Pass { reset: true } to wipe any stale/partial credentials first so a fresh QR is
+// guaranteed (used when a session is stuck and never produces a QR).
+export async function startSession(accountId, { reset = false } = {}) {
+  if (reset) {
+    const cur = sessions.get(accountId);
+    try { cur?.sock?.end?.(undefined); } catch { /* ignore */ }
+    sessions.delete(accountId);
+    try {
+      const { clearDbAuthState } = await import("./db-auth-state.js");
+      await clearDbAuthState(accountId);
+    } catch { /* ignore */ }
+  }
   const existing = sessions.get(accountId);
   // A truly live session is reused. A session that is mid-handshake — still "connecting"
   // recently, OR already showing a QR waiting to be scanned — is ALSO reused so we never
@@ -82,16 +99,25 @@ export async function startSession(accountId) {
 
   // Auth state is persisted in the DB (via the API) so sessions survive restarts.
   const { state, saveCreds } = await useDbAuthState(accountId);
-  const version = await getWaVersion(b); // cached → fast QR
+  const version = await getWaVersion(b); // cached/fallback → fast QR
+  const hasCreds = !!state.creds?.registered;
+  logger.info({ accountId, hasCreds, version }, "startSession: creating socket");
 
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
-    browser: Browsers.appropriate("Chrome"),
-    markOnlineOnConnect: false,
-    syncFullHistory: false,
-  });
+  let sock;
+  try {
+    sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      browser: Browsers.appropriate("Chrome"),
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+    });
+  } catch (err) {
+    sessions.delete(accountId);
+    logger.error({ accountId, err: err.message }, "startSession: makeWASocket failed");
+    throw err;
+  }
 
   sessions.set(accountId, { sock, status: "connecting", connecting: true, qr: null, startedAt: Date.now() });
   sock.ev.on("creds.update", saveCreds);
