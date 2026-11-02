@@ -174,6 +174,28 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
     }
   }
 
+  Future<void> _editCampaign(BuildContext context, String status) async {
+    final finished = status == 'Completed' || status == 'Stopped' || status == 'Failed';
+    if (finished) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Edit campaign?'),
+          content: const Text('Editing this campaign will reset it to Draft and clear its past send history, so you can edit and send it again.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Continue')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    if (!context.mounted) return;
+    await context.push('/campaigns/${widget.id}/edit');
+    _load();
+    _poll();
+  }
+
   Future<void> _retryFailed() async {
     try {
       await ref.read(apiProvider).post('/api/campaigns/${widget.id}/retry-failed');
@@ -237,8 +259,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
               Wrap(spacing: 10, children: [
                 if (p.status == 'Draft' || p.status == 'Scheduled' || p.status == 'Paused')
                   FilledButton.icon(onPressed: () => _action('start'), icon: const Icon(Icons.play_arrow), label: const Text('Start')),
-                if (p.status == 'Draft' || p.status == 'Scheduled' || p.status == 'Paused')
-                  OutlinedButton.icon(onPressed: () => context.push('/campaigns/${widget.id}/edit').then((_) { _load(); _poll(); }), icon: const Icon(Icons.edit, size: 18), label: const Text('Edit')),
+                if (p.status != 'Running')
+                  OutlinedButton.icon(onPressed: () => _editCampaign(context, p.status), icon: const Icon(Icons.edit, size: 18), label: const Text('Edit')),
                 if (p.status == 'Running')
                   OutlinedButton.icon(onPressed: () => _action('pause'), icon: const Icon(Icons.pause), label: const Text('Pause')),
                 if (p.status == 'Paused')

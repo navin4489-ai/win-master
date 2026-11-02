@@ -45,7 +45,7 @@ import { Campaign, ContactGroup, Template, WaAccount } from '../../core/models';
             <td>{{ c.processedCount }}/{{ c.totalRecipients }}</td>
             <td class="row-actions">
               @if (c.status === 'Draft' || c.status === 'Scheduled' || c.status === 'Paused') { <button class="btn btn-primary btn-sm" (click)="action(c,'start')">Start</button> }
-              @if (c.status === 'Draft' || c.status === 'Scheduled' || c.status === 'Paused') { <button class="btn btn-ghost btn-sm" (click)="openEdit(c)">Edit</button> }
+              @if (c.status !== 'Running') { <button class="btn btn-ghost btn-sm" (click)="openEdit(c)">Edit</button> }
               @if (c.status === 'Running') { <button class="btn btn-ghost btn-sm" (click)="action(c,'pause')">Pause</button> }
               @if (c.status === 'Running' || c.status === 'Paused') { <button class="btn btn-danger btn-sm" (click)="action(c,'stop')">Stop</button> }
               @if (c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed') { <button class="btn btn-primary btn-sm" (click)="action(c,'restart')">Restart</button> }
@@ -166,8 +166,11 @@ export class CampaignsComponent implements OnInit, OnDestroy {
     this.api.accounts().subscribe(r => { this.accounts.set(r); this.preselectAccount(); });
     this.showCreate.set(true);
   }
-  // Opens the same modal pre-filled to edit an existing (Draft/Scheduled/Paused) campaign.
+  // Opens the same modal pre-filled to edit an existing campaign. Editing a finished
+  // (Completed/Stopped/Failed) campaign resets it to a clean Draft on save — warn first.
   openEdit(c: Campaign) {
+    const finished = c.status === 'Completed' || c.status === 'Stopped' || c.status === 'Failed';
+    if (finished && !confirm('Editing this campaign will reset it to Draft and clear its past send history, so you can edit and send it again. Continue?')) return;
     this.editId.set(c.id);
     this.form = {
       name: c.name, groupId: c.groupId, templateId: c.templateId ?? null, body: c.body ?? '',

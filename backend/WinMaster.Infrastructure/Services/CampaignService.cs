@@ -50,8 +50,27 @@ public class CampaignService
     public async Task<CampaignDto> UpdateAsync(int ownerId, int id, CreateCampaignRequest req)
     {
         var c = await Owned(ownerId, id);
-        if (c.Status is not (CampaignStatus.Draft or CampaignStatus.Paused or CampaignStatus.Scheduled))
-            throw new BusinessException("Campaign can only be edited while Draft, Scheduled or Paused.");
+        // Running campaigns must be paused/stopped before editing; everything else is editable.
+        if (c.Status == CampaignStatus.Running)
+            throw new BusinessException("Pause or stop the campaign before editing it.");
+
+        // Editing an already-finished campaign (Completed/Stopped/Failed) resets it to a clean
+        // Draft: clear the past send progress + recipients so the next Start re-sends the whole
+        // group with the new content, and old stats never contradict the new message.
+        var wasFinished = c.Status is CampaignStatus.Completed or CampaignStatus.Stopped or CampaignStatus.Failed;
+        if (wasFinished)
+        {
+            var old = _db.CampaignRecipients.Where(r => r.CampaignId == c.Id);
+            _db.CampaignRecipients.RemoveRange(old);
+            var cp = await _db.CampaignCheckpoints.FirstOrDefaultAsync(x => x.CampaignId == c.Id);
+            if (cp != null) _db.CampaignCheckpoints.Remove(cp);
+            c.Status = CampaignStatus.Draft;
+            c.ProcessedCount = 0; c.FailedCount = 0;
+            c.StartedAt = null; c.CompletedAt = null;
+            c.PausedByConnection = false; c.PauseReason = null; c.ConnectionMessage = null;
+            c.LimitResumeAt = null; c.RestrictionPausedAt = null;
+        }
+
         c.Name = req.Name; c.TemplateId = req.TemplateId; c.Body = req.Body;
         c.MinDelaySec = req.Pacing.MinDelaySec; c.MaxDelaySec = req.Pacing.MaxDelaySec;
         c.BatchSize = req.Pacing.BatchSize; c.CooldownMinutes = req.Pacing.CooldownMinutes;
@@ -60,8 +79,8 @@ public class CampaignService
         if (!string.IsNullOrWhiteSpace(req.EngineType) && Enum.TryParse<EngineType>(req.EngineType, true, out var engine)) c.EngineType = engine;
         if (!string.IsNullOrWhiteSpace(req.RotationMode) && Enum.TryParse<RotationMode>(req.RotationMode, true, out var rot)) c.RotationMode = rot;
         c.WindowStart = ParseTime(req.WindowStart); c.WindowEnd = ParseTime(req.WindowEnd);
-        // Changing the target group is only safe before any sending has happened (Draft, no
-        // recipients materialised yet) — otherwise it would orphan the in-progress run.
+        // The group can be changed whenever no sending is pending — i.e. it's now a Draft with no
+        // live recipients (true for a reset older campaign, or an untouched Draft).
         if (req.GroupId != c.GroupId && c.Status == CampaignStatus.Draft
             && !await _db.CampaignRecipients.AnyAsync(r => r.CampaignId == c.Id))
         {
