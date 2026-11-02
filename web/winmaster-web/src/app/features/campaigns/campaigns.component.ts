@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { ToastService } from '../../core/toast.service';
-import { Campaign, ContactGroup, Template } from '../../core/models';
+import { Campaign, ContactGroup, Template, WaAccount } from '../../core/models';
 
 @Component({
   selector: 'app-campaigns',
@@ -81,8 +81,18 @@ import { Campaign, ContactGroup, Template } from '../../core/models';
             </div>
           }
           <div class="flex gap">
-            <div class="field" style="flex:1"><label>Engine</label><select class="input" [(ngModel)]="form.engineType"><option>Baileys</option><option>CloudApi</option></select></div>
+            <div class="field" style="flex:1"><label>Engine</label><select class="input" [(ngModel)]="form.engineType" (change)="onEngineChange()"><option>Baileys</option><option>CloudApi</option></select></div>
             <div class="field" style="flex:1"><label>Rotation</label><select class="input" [(ngModel)]="form.rotationMode"><option>RoundRobin</option><option>Sequential</option></select></div>
+          </div>
+          <div class="field">
+            <label>Send from account</label>
+            <select class="input" [(ngModel)]="form.accountId">
+              <option [ngValue]="null">Auto (any {{ form.engineType }} account)</option>
+              @for (a of accountsForEngine(); track a.id) {
+                <option [ngValue]="a.id">{{ a.displayName }} {{ a.phoneNumber ? '· ' + a.phoneNumber : '' }}{{ a.isDefault ? ' (default)' : '' }}{{ a.isRestricted ? ' — restricted' : '' }}</option>
+              }
+            </select>
+            @if (!accountsForEngine().length) { <small class="muted">No {{ form.engineType }} account yet — add one under Accounts.</small> }
           </div>
           <div class="flex gap">
             <div class="field" style="flex:1"><label>Min delay (s)</label><input class="input" type="number" [(ngModel)]="form.pacing.minDelaySec" /></div>
@@ -108,6 +118,7 @@ export class CampaignsComponent implements OnInit, OnDestroy {
   items = signal<Campaign[]>([]);
   groups = signal<ContactGroup[]>([]);
   templates = signal<Template[]>([]);
+  accounts = signal<WaAccount[]>([]);
   loading = signal(true);
   showCreate = signal(false);
   aiBusy = signal(false);
@@ -149,8 +160,20 @@ export class CampaignsComponent implements OnInit, OnDestroy {
     this.form = this.blank();
     this.api.groups({ pageSize: 100 }).subscribe(r => { this.groups.set(r.items); if (r.items[0]) this.form.groupId = r.items[0].id; });
     this.api.templates().subscribe(r => this.templates.set(r));
+    this.api.accounts().subscribe(r => { this.accounts.set(r); this.preselectAccount(); });
     this.showCreate.set(true);
   }
+  // Accounts matching the currently selected engine (can't send from a CloudApi number on a Baileys campaign).
+  accountsForEngine(): WaAccount[] {
+    return this.accounts().filter(a => a.engineType === this.form.engineType);
+  }
+  // Pre-select the user's default account for this engine, if any.
+  preselectAccount() {
+    const list = this.accountsForEngine();
+    const def = list.find(a => a.isDefault && !a.isRestricted) || list.find(a => !a.isRestricted) || list[0];
+    this.form.accountId = def ? def.id : null;
+  }
+  onEngineChange() { this.preselectAccount(); }
   create() {
     const name = (this.form.name || '').trim();
     const groupId = +this.form.groupId;
@@ -198,5 +221,5 @@ export class CampaignsComponent implements OnInit, OnDestroy {
       .subscribe({ next: (r: any) => { this.form.body = r.message; this.aiBusy.set(false); this.toast.success('AI message generated'); },
         error: (e: any) => { this.aiBusy.set(false); this.toast.error(e?.error?.detail || 'AI failed'); } });
   }
-  blank() { return { name: '', groupId: null, templateId: null, body: '', engineType: 'Baileys', rotationMode: 'RoundRobin', scheduledAt: '', spintaxEnabled: true, personalizeMessage: true, pacing: { minDelaySec: 30, maxDelaySec: 60, batchSize: 15, cooldownMinutes: 10 } }; }
+  blank() { return { name: '', groupId: null, templateId: null, body: '', engineType: 'Baileys', accountId: null, rotationMode: 'RoundRobin', scheduledAt: '', spintaxEnabled: true, personalizeMessage: true, pacing: { minDelaySec: 30, maxDelaySec: 60, batchSize: 15, cooldownMinutes: 10 } }; }
 }

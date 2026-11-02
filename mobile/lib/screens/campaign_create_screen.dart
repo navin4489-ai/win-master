@@ -16,8 +16,10 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
   final _body = TextEditingController();
   List<ContactGroup> _groups = [];
   List<Template> _templates = [];
+  List<WaAccount> _accounts = [];
   int? _groupId;
   int? _templateId;
+  int? _accountId;
   String _engine = 'Baileys';
   bool _spintax = true;
   bool _saving = false;
@@ -41,14 +43,27 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
     try {
       final g = await ref.read(apiProvider).get('/api/contact-groups', query: {'pageSize': 100});
       final t = await ref.read(apiProvider).get('/api/templates') as List;
+      final a = await ref.read(apiProvider).get('/api/whatsapp-accounts') as List;
       setState(() {
         _groups = Paged.from(g, ContactGroup.fromJson).items;
         _templates = t.map((e) => Template.fromJson(e)).toList();
+        _accounts = a.map((e) => WaAccount.fromJson(e)).toList();
         if (_groups.isNotEmpty) _groupId = _groups.first.id;
+        _preselectAccount();
       });
     } catch (e) {
       if (mounted) showError(context, e);
     }
+  }
+
+  List<WaAccount> get _accountsForEngine => _accounts.where((a) => a.engineType == _engine).toList();
+
+  void _preselectAccount() {
+    final list = _accountsForEngine;
+    WaAccount? pick;
+    for (final a in list) { if (a.isDefault && !a.isRestricted) { pick = a; break; } }
+    pick ??= list.where((a) => !a.isRestricted).isNotEmpty ? list.firstWhere((a) => !a.isRestricted) : (list.isNotEmpty ? list.first : null);
+    _accountId = pick?.id;
   }
 
   Future<void> _aiGenerate() async {
@@ -85,7 +100,7 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
         'body': _templateId == null ? _body.text : null,
         'groupId': _groupId,
         'engineType': _engine,
-        'accountId': null,
+        'accountId': _accountId,
         'rotationMode': 'RoundRobin',
         'scheduledAt': null,
         'spintaxEnabled': _spintax,
@@ -151,8 +166,29 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
           initialValue: _engine,
           decoration: const InputDecoration(labelText: 'Engine'),
           items: const [DropdownMenuItem(value: 'Baileys', child: Text('Baileys')), DropdownMenuItem(value: 'CloudApi', child: Text('Cloud API'))],
-          onChanged: (v) => setState(() => _engine = v ?? 'Baileys'),
+          onChanged: (v) => setState(() { _engine = v ?? 'Baileys'; _preselectAccount(); }),
         ),
+        const SizedBox(height: 14),
+        DropdownButtonFormField<int?>(
+          initialValue: _accountId,
+          decoration: const InputDecoration(labelText: 'Send from account'),
+          items: [
+            DropdownMenuItem<int?>(value: null, child: Text('Auto (any $_engine account)')),
+            ..._accountsForEngine.map((a) => DropdownMenuItem<int?>(
+                  value: a.id,
+                  child: Text(
+                    '${a.displayName}${a.phoneNumber != null ? ' · ${a.phoneNumber}' : ''}${a.isDefault ? ' (default)' : ''}${a.isRestricted ? ' — restricted' : ''}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+          ],
+          onChanged: (v) => setState(() => _accountId = v),
+        ),
+        if (_accountsForEngine.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('No account for this engine yet — add one under Accounts.', style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90))),
+          ),
         const SizedBox(height: 8),
         SwitchListTile(
           value: _spintax,

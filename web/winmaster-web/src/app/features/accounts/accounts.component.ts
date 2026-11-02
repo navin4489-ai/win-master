@@ -14,7 +14,7 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
     @for (a of items(); track a.id) {
       <div class="card card-pad">
         <div class="between"><b>{{ a.displayName }}</b><span class="badge" [class]="badge(a.status)">{{ a.status }}</span></div>
-        <div class="muted">{{ a.phoneNumber || '—' }} · {{ a.engineType }}</div>
+        <div class="muted">{{ a.phoneNumber || '—' }} · {{ a.engineType }} @if (a.isDefault) { <span class="badge badge-green" style="margin-left:.3rem">Default</span> }</div>
         @if (a.isRestricted) {
           <div style="margin:.5rem 0;padding:.5rem .6rem;border-radius:8px;background:rgba(220,38,38,.1);color:var(--danger,#dc2626);font-size:.8rem">
             <b>Restricted by WhatsApp</b> — {{ a.restrictionReason || 'sending stopped to protect the number' }}. Campaigns are paused; it recovers automatically after the cool-down.
@@ -27,6 +27,7 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
           @if (a.engineType === 'Baileys' && a.status !== 'Connected') { <button class="btn btn-primary btn-sm" (click)="connect(a)">Connect (QR)</button> }
           @if (a.status === 'Connected') { <button class="btn btn-ghost btn-sm" (click)="disconnect(a)">Disconnect</button> }
           <button class="btn btn-ghost btn-sm" (click)="openAntiBan(a)">Anti-ban</button>
+          @if (!a.isDefault) { <button class="btn btn-ghost btn-sm" (click)="makeDefault(a)" title="Pre-select this number when creating a campaign">Make default</button> }
           <button class="btn btn-danger btn-sm" (click)="remove(a)">Delete</button>
         </div>
       </div>
@@ -128,6 +129,12 @@ export class AccountsComponent implements OnInit, OnDestroy {
     this.api.clearRestriction(a.id).subscribe({
       next: () => { this.toast.success('Restriction cleared — you can use this number again (within safe limits)'); this.load(); },
       error: e => this.toast.error(e?.error?.detail || 'Failed to clear')
+    });
+  }
+  makeDefault(a: WaAccount) {
+    this.api.setDefaultAccount(a.id).subscribe({
+      next: () => { this.toast.success(`${a.displayName} is now your default sending number`); this.load(); },
+      error: e => this.toast.error(e?.error?.detail || 'Failed to set default')
     });
   }
   remove(a: WaAccount) { if (confirm('Delete account?')) this.api.deleteAccount(a.id).subscribe(() => { this.toast.success('Deleted'); this.load(); }); }

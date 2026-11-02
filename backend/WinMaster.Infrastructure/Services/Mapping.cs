@@ -28,7 +28,7 @@ public static class Mapping
     public static WaAccountDto ToDto(this WhatsAppAccount a, AccountAntiBanSettings? ban = null) =>
         new(a.Id, a.EngineType.ToString(), a.PhoneNumber, a.DisplayName, a.Status.ToString(), a.ProxyId,
             a.Proxy?.Host, a.WarmupState.ToString(), a.RotationWeight, a.DailyLimit, a.SentToday, a.LastSeenAt, a.SessionId,
-            a.IsRestricted, a.RestrictionReason, AccountSafety.EffectiveDailyCap(a, ban));
+            a.IsRestricted, a.RestrictionReason, AccountSafety.EffectiveDailyCap(a, ban), a.IsDefault);
 
     public static ContactGroupDto ToDto(this ContactGroup g) =>
         new(g.Id, g.Name, g.Source.ToString(), g.TotalContacts, g.ValidContacts, g.InvalidContacts,

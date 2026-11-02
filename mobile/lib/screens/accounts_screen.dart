@@ -92,6 +92,16 @@ class AccountsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _makeDefault(BuildContext context, WidgetRef ref, WaAccount a) async {
+    try {
+      await ref.read(apiProvider).post('/api/whatsapp-accounts/${a.id}/set-default');
+      ref.invalidate(accountsProvider);
+      if (context.mounted) showOk(context, '${a.displayName} is now your default sending number');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
   Future<void> _antiBan(BuildContext context, WidgetRef ref, WaAccount a) async {
     Map<String, dynamic> s;
     try {
@@ -168,6 +178,14 @@ class AccountsScreen extends ConsumerWidget {
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Row(children: [
                             Expanded(child: Text(a.displayName, style: const TextStyle(fontWeight: FontWeight.w700))),
+                            if (a.isDefault) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                margin: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(20)),
+                                child: const Text('Default', style: TextStyle(fontSize: 11, color: Color(0xFF166534), fontWeight: FontWeight.w600)),
+                              ),
+                            ],
                             StatusChip(a.status),
                           ]),
                           const SizedBox(height: 4),
@@ -215,6 +233,8 @@ class AccountsScreen extends ConsumerWidget {
                             if (a.status == 'Connected')
                               OutlinedButton(onPressed: () => _disconnect(context, ref, a), child: const Text('Disconnect')),
                             OutlinedButton.icon(onPressed: () => _antiBan(context, ref, a), icon: const Icon(Icons.shield_outlined, size: 18), label: const Text('Anti-ban')),
+                            if (!a.isDefault)
+                              OutlinedButton.icon(onPressed: () => _makeDefault(context, ref, a), icon: const Icon(Icons.star_outline, size: 18), label: const Text('Make default')),
                           ]),
                         ]),
                       ),

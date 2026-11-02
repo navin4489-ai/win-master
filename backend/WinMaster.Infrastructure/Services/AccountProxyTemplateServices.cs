@@ -50,6 +50,11 @@ public class AccountService
         };
         _db.WhatsAppAccounts.Add(acc);
         await _db.SaveChangesAsync();
+        // First account for this owner becomes the default sending number automatically.
+        if (!await _db.WhatsAppAccounts.AnyAsync(x => x.OwnerId == ownerId && x.IsDefault && x.Id != acc.Id))
+        {
+            acc.IsDefault = true;
+        }
         // Conservative anti-ban defaults live on the entity (30-60s delay, batch 15, 10m cooldown,
         // cap 50) so every new number is protected the moment it is created.
         _db.AntiBanSettings.Add(new AccountAntiBanSettings { AccountId = acc.Id });
@@ -74,6 +79,21 @@ public class AccountService
         var acc = await Owned(ownerId, id);
         _db.WhatsAppAccounts.Remove(acc);
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Marks one account as the owner's default sending number (clears the flag on all others),
+    /// so campaign creation can pre-select it.
+    /// </summary>
+    public async Task<WaAccountDto> SetDefaultAsync(int ownerId, int id)
+    {
+        var acc = await Owned(ownerId, id);
+        var mine = await _db.WhatsAppAccounts.Where(a => a.OwnerId == ownerId).ToListAsync();
+        foreach (var a in mine) a.IsDefault = a.Id == id;
+        acc.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        var ban = await _db.AntiBanSettings.FirstOrDefaultAsync(b => b.AccountId == acc.Id);
+        return acc.ToDto(ban);
     }
 
     /// <summary>

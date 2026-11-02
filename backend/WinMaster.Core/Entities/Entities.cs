@@ -100,6 +100,8 @@ public class WhatsAppAccount : BaseEntity
     public int? ProxyId { get; set; }
     public Proxy? Proxy { get; set; }
     public WarmupState WarmupState { get; set; } = WarmupState.None;
+    /// <summary>User's preferred sending number. Pre-selected in campaign create; at most one per owner.</summary>
+    public bool IsDefault { get; set; }
     public int RotationWeight { get; set; } = 1;
     public int DailyLimit { get; set; } = 1000;
     public int SentToday { get; set; }

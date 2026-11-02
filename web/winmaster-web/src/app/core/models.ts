@@ -19,7 +19,7 @@ export interface WaAccount {
   id: number; engineType: string; phoneNumber?: string; displayName: string; status: string;
   proxyId?: number | null; proxyLabel?: string | null; warmupState: string; rotationWeight: number;
   dailyLimit: number; sentToday: number; lastSeenAt?: string; sessionId?: string;
-  isRestricted?: boolean; restrictionReason?: string | null; effectiveDailyCap?: number;
+  isRestricted?: boolean; restrictionReason?: string | null; effectiveDailyCap?: number; isDefault?: boolean;
 }
 export interface AccountsStatus { connected: number; connecting: number; total: number; }
 export interface Qr { qrData?: string; qrPngBase64?: string; expiresAt?: string; }

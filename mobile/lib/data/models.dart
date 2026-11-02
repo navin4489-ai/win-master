@@ -121,13 +121,13 @@ class WaAccount {
   final int id, dailyLimit, sentToday, effectiveDailyCap;
   final String engineType, displayName, status, warmupState;
   final String? phoneNumber, restrictionReason;
-  final bool isRestricted;
+  final bool isRestricted, isDefault;
   WaAccount(this.id, this.dailyLimit, this.sentToday, this.effectiveDailyCap, this.engineType,
-      this.displayName, this.status, this.warmupState, this.phoneNumber, this.isRestricted, this.restrictionReason);
+      this.displayName, this.status, this.warmupState, this.phoneNumber, this.isRestricted, this.restrictionReason, this.isDefault);
   factory WaAccount.fromJson(Map<String, dynamic> j) => WaAccount(
         j['id'], j['dailyLimit'] ?? 0, j['sentToday'] ?? 0, j['effectiveDailyCap'] ?? j['dailyLimit'] ?? 0,
         j['engineType'] ?? '', j['displayName'] ?? '', j['status'] ?? '', j['warmupState'] ?? '',
-        j['phoneNumber'], j['isRestricted'] == true, j['restrictionReason']);
+        j['phoneNumber'], j['isRestricted'] == true, j['restrictionReason'], j['isDefault'] == true);
 }
 
 class Contact {

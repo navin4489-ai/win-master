@@ -23,6 +23,7 @@ public class WhatsAppAccountsController : ApiControllerBase
     [HttpGet("{id:int}/qr")] public async Task<ActionResult<QrResponse>> Qr(int id) => Ok(await _svc.QrAsync(UserId, id));
     [HttpPost("{id:int}/disconnect")] public async Task<IActionResult> Disconnect(int id) { await _svc.DisconnectAsync(UserId, id); return NoContent(); }
     [HttpPost("{id:int}/clear-restriction")] public async Task<ActionResult<WaAccountDto>> ClearRestriction(int id) => Ok(await _svc.ClearRestrictionAsync(UserId, id));
+    [HttpPost("{id:int}/set-default")] public async Task<ActionResult<WaAccountDto>> SetDefault(int id) => Ok(await _svc.SetDefaultAsync(UserId, id));
     [HttpPost("{id:int}/rotate")] public async Task<ActionResult<WaAccountDto>> Rotate(int id, [FromBody] RotateBody body) => Ok(await _svc.RotateAsync(UserId, id, body.RotationWeight));
     public record RotateBody(int RotationWeight);
 }

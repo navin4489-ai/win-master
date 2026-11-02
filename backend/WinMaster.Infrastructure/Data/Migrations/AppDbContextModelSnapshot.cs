@@ -1332,6 +1332,9 @@ namespace WinMaster.Infrastructure.Data.Migrations
                     b.Property<int>("EngineType")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsRestricted")
                         .HasColumnType("boolean");
 

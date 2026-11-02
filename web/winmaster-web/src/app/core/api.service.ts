@@ -40,6 +40,7 @@ export class ApiService {
   accountQr(id: number) { return this.http.get<M.Qr>(`${this.base}/whatsapp-accounts/${id}/qr`); }
   disconnectAccount(id: number) { return this.http.post(`${this.base}/whatsapp-accounts/${id}/disconnect`, {}); }
   clearRestriction(id: number) { return this.http.post<M.WaAccount>(`${this.base}/whatsapp-accounts/${id}/clear-restriction`, {}); }
+  setDefaultAccount(id: number) { return this.http.post<M.WaAccount>(`${this.base}/whatsapp-accounts/${id}/set-default`, {}); }
 
   // Proxies
   proxies() { return this.http.get<M.Proxy[]>(`${this.base}/proxies`); }

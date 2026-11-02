@@ -38,7 +38,8 @@ public record DeactivateRequest(string Key, string Hwid);
 // ---------- WhatsApp accounts ----------
 public record WaAccountDto(int Id, string EngineType, string? PhoneNumber, string DisplayName, string Status,
     int? ProxyId, string? ProxyLabel, string WarmupState, int RotationWeight, int DailyLimit, int SentToday,
-    DateTime? LastSeenAt, string? SessionId, bool IsRestricted, string? RestrictionReason, int EffectiveDailyCap);
+    DateTime? LastSeenAt, string? SessionId, bool IsRestricted, string? RestrictionReason, int EffectiveDailyCap,
+    bool IsDefault);
 public record CreateWaAccountRequest(string EngineType, string? PhoneNumber, string DisplayName,
     int? ProxyId, CloudApiCredentials? Credentials);
 public record UpdateWaAccountRequest(string DisplayName, int? ProxyId, int? RotationWeight, int? DailyLimit);
