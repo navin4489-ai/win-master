@@ -36,3 +36,6 @@ mobile/web/
 **/.flutter-plugins-dependencies
 
 services/wa-bridge/sessions/
+
+# VM deploy secrets
+deploy/.env

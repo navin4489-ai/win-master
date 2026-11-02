@@ -1,0 +1,58 @@
+# Win Master — self-contained stack for an always-on VM (e.g. Oracle Cloud Always-Free).
+# Runs the app (API + Angular + Baileys bridge in one image) plus Postgres, with
+# PERSISTENT volumes so the WhatsApp session and all data survive restarts/reboots.
+#
+# Usage (on the VM, from the repo root):
+#   cd WinMaster
+#   cp deploy/.env.example deploy/.env   # then edit deploy/.env and set strong secrets
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the host — only the app container reaches it over the internal network.
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:10000
+      Database__Provider: Postgres
+      # SSL is not needed for the internal container-to-container connection.
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Disable"
+      # Secrets — set these in deploy/.env (never commit real values).
+      Jwt__Secret: ${JWT_SECRET}
+      License__SigningSecret: ${LICENSE_SIGNING_SECRET}
+      Bridge__Key: ${BRIDGE_KEY}
+      Bridge__BaseUrl: http://localhost:3001
+      BRIDGE_PORT: "3001"
+      # Persisted WhatsApp session files live on a volume so a reboot keeps the link.
+      SESSIONS_DIR: /app/bridge/sessions
+      # The bridge posts callbacks to the API inside the same container.
+      API_BASE_URL: http://localhost:10000
+    volumes:
+      - sessions:/app/bridge/sessions
+    ports:
+      - "80:10000"   # serve the app on the VM's port 80 (http)
+
+volumes:
+  pgdata:
+  sessions:
