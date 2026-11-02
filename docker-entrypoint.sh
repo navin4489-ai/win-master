@@ -18,13 +18,23 @@ export NODE_ENV=production
 
 mkdir -p "$SESSIONS_DIR"
 
-echo "[entrypoint] starting WhatsApp bridge on :$BRIDGE_PORT (callbacks -> $API_BASE_URL, sessions: $SESSIONS_DIR)"
-# Unset PORT for the bridge so Render's API port never hijacks it.
-( unset PORT; exec node /app/bridge/src/server.js ) &
-BRIDGE_PID=$!
+# Watchdog: keep the WhatsApp bridge alive. If it ever crashes/exits, restart it
+# automatically so QR connect never gets stuck on "bridge unavailable". Without this,
+# a single bridge crash left the API up but the bridge dead until a full redeploy.
+start_bridge_watchdog() {
+  while true; do
+    echo "[entrypoint] starting WhatsApp bridge on :$BRIDGE_PORT (callbacks -> $API_BASE_URL)"
+    # Unset PORT for the bridge so Render's API port never hijacks it.
+    ( unset PORT; node /app/bridge/src/server.js ) || true
+    echo "[entrypoint] WhatsApp bridge exited (code $?). Restarting in 3s..."
+    sleep 3
+  done
+}
+start_bridge_watchdog &
+WATCHDOG_PID=$!
 
-# If the bridge dies, keep the API running (QR connect will report unavailable).
-trap 'kill $BRIDGE_PID 2>/dev/null || true' EXIT
+# Clean up the watchdog when the container stops.
+trap 'kill $WATCHDOG_PID 2>/dev/null || true' EXIT
 
 echo "[entrypoint] starting .NET API on :$API_PORT"
 exec dotnet WinMaster.API.dll

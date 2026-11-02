@@ -13,6 +13,16 @@ import {
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
+// Keep the bridge process alive through unexpected errors. A single Baileys/socket
+// error must never crash the whole bridge (which would knock out QR + sending until a
+// redeploy). We log and continue; the entrypoint watchdog restarts us if we do exit.
+process.on("uncaughtException", (err) => {
+  logger.error({ err: err?.message, stack: err?.stack }, "uncaughtException (continuing)");
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason: String(reason) }, "unhandledRejection (continuing)");
+});
+
 // Health check (unauthenticated) for container orchestration.
 app.get("/healthz", (_req, res) => res.json({ status: "healthy", sessions: sessionCount() }));
 
