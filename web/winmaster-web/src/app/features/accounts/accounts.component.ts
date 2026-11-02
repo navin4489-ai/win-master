@@ -42,6 +42,14 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
         <div class="field"><label>Display name</label><input class="input" [(ngModel)]="form.displayName" /></div>
         <div class="field"><label>Engine</label><select class="input" [(ngModel)]="form.engineType"><option>Baileys</option><option>CloudApi</option></select></div>
         <div class="field"><label>Phone number</label><input class="input" [(ngModel)]="form.phoneNumber" placeholder="+1..." /></div>
+        @if (form.engineType === 'CloudApi') {
+          <div style="margin:.4rem 0;padding:.5rem .6rem;border-radius:8px;background:rgba(37,211,102,.08);font-size:.8rem;color:var(--muted)">
+            Official WhatsApp Cloud API (Meta). Paste the values from your Meta app → WhatsApp → API Setup. No QR needed — this stays connected and is ban-safe.
+          </div>
+          <div class="field"><label>Phone Number ID</label><input class="input" [(ngModel)]="form.cloud.phoneNumberId" placeholder="e.g. 123456789012345" /></div>
+          <div class="field"><label>Access Token</label><input class="input" [(ngModel)]="form.cloud.accessToken" placeholder="Permanent or temporary token" /></div>
+          <div class="field"><label>WhatsApp Business Account ID (optional)</label><input class="input" [(ngModel)]="form.cloud.wabaId" placeholder="WABA ID" /></div>
+        }
         <div class="field"><label>Proxy</label><select class="input" [(ngModel)]="form.proxyId"><option [ngValue]="null">None</option>@for (p of proxies(); track p.id) { <option [value]="p.id">{{ p.type }} {{ p.host }}:{{ p.port }}</option> }</select></div>
       </div>
       <div class="modal-foot"><button class="btn btn-ghost" (click)="showCreate.set(false)">Cancel</button><button class="btn btn-primary" (click)="create()">Create</button></div>
@@ -93,8 +101,16 @@ export class AccountsComponent implements OnInit, OnDestroy {
   ngOnInit() { this.load(); }
   ngOnDestroy() { this.stopQrPolling(); }
   load() { this.loading.set(true); this.api.accounts().subscribe({ next: r => { this.items.set(r); this.loading.set(false); }, error: () => { this.loading.set(false); this.toast.error('API unreachable'); } }); }
-  openCreate() { this.form = { displayName: '', engineType: 'Baileys', phoneNumber: '', proxyId: null }; this.api.proxies().subscribe(p => this.proxies.set(p)); this.showCreate.set(true); }
-  create() { this.api.createAccount(this.form).subscribe({ next: () => { this.toast.success('Account added'); this.showCreate.set(false); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') }); }
+  openCreate() { this.form = { displayName: '', engineType: 'Baileys', phoneNumber: '', proxyId: null, cloud: { phoneNumberId: '', accessToken: '', wabaId: '' } }; this.api.proxies().subscribe(p => this.proxies.set(p)); this.showCreate.set(true); }
+  create() {
+    const f = this.form;
+    const body: any = { displayName: f.displayName, engineType: f.engineType, phoneNumber: f.phoneNumber, proxyId: f.proxyId };
+    if (f.engineType === 'CloudApi') {
+      if (!(f.cloud?.phoneNumberId || '').trim() || !(f.cloud?.accessToken || '').trim()) { this.toast.error('Cloud API needs a Phone Number ID and Access Token'); return; }
+      body.credentials = { phoneNumberId: f.cloud.phoneNumberId.trim(), accessToken: f.cloud.accessToken.trim(), wabaId: (f.cloud.wabaId || '').trim() };
+    }
+    this.api.createAccount(body).subscribe({ next: () => { this.toast.success('Account added'); this.showCreate.set(false); this.load(); }, error: e => this.toast.error(e?.error?.detail || 'Failed') });
+  }
 
   connect(a: WaAccount) {
     this.qrPng.set(null);

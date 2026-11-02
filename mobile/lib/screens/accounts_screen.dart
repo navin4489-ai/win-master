@@ -17,6 +17,9 @@ class AccountsScreen extends ConsumerWidget {
   Future<void> _addAccount(BuildContext context, WidgetRef ref) async {
     final name = TextEditingController();
     final phone = TextEditingController();
+    final phoneNumberId = TextEditingController();
+    final accessToken = TextEditingController();
+    final wabaId = TextEditingController();
     String engine = 'Baileys';
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -37,6 +40,16 @@ class AccountsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 10),
             TextField(controller: phone, decoration: const InputDecoration(labelText: 'Phone number', hintText: '+1...')),
+            if (engine == 'CloudApi') ...[
+              const SizedBox(height: 10),
+              const Align(alignment: Alignment.centerLeft, child: Text('Official WhatsApp Cloud API (Meta) — no QR, stays connected, ban-safe. Paste from Meta app → WhatsApp → API Setup.', style: TextStyle(fontSize: 12, color: Color(0xFF6B7A90)))),
+              const SizedBox(height: 10),
+              TextField(controller: phoneNumberId, decoration: const InputDecoration(labelText: 'Phone Number ID')),
+              const SizedBox(height: 10),
+              TextField(controller: accessToken, decoration: const InputDecoration(labelText: 'Access Token')),
+              const SizedBox(height: 10),
+              TextField(controller: wabaId, decoration: const InputDecoration(labelText: 'WhatsApp Business Account ID (optional)')),
+            ],
             const SizedBox(height: 16),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
             const SizedBox(height: 16),
@@ -46,8 +59,20 @@ class AccountsScreen extends ConsumerWidget {
     );
     if (saved != true) return;
     try {
+      Map<String, dynamic>? credentials;
+      if (engine == 'CloudApi') {
+        if (phoneNumberId.text.trim().isEmpty || accessToken.text.trim().isEmpty) {
+          if (context.mounted) showError(context, 'Cloud API needs a Phone Number ID and Access Token');
+          return;
+        }
+        credentials = {
+          'phoneNumberId': phoneNumberId.text.trim(),
+          'accessToken': accessToken.text.trim(),
+          'wabaId': wabaId.text.trim(),
+        };
+      }
       await ref.read(apiProvider).post('/api/whatsapp-accounts', body: {
-        'engineType': engine, 'displayName': name.text, 'phoneNumber': phone.text, 'proxyId': null, 'credentials': null,
+        'engineType': engine, 'displayName': name.text, 'phoneNumber': phone.text, 'proxyId': null, 'credentials': credentials,
       });
       ref.invalidate(accountsProvider);
       if (context.mounted) showOk(context, 'Account added');

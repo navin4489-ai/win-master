@@ -1,46 +1,111 @@
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using WinMaster.Core;
 using WinMaster.Core.Interfaces;
+using WinMaster.Infrastructure.Data;
 
 namespace WinMaster.Infrastructure.Services;
 
-/// <summary>Sends via the official Meta Graph API (compliant path, per-conversation cost).</summary>
+/// <summary>Sends via the official Meta WhatsApp Cloud API (compliant, ban-safe path).</summary>
 public class MetaCloudChannel : IWhatsAppChannel
 {
     private readonly IHttpClientFactory _http;
     private readonly ILogger<MetaCloudChannel> _log;
+    private readonly AppDbContext _db;
+    private readonly IEncryptionService _enc;
+    private readonly IConfiguration _cfg;
     public EngineType Engine => EngineType.CloudApi;
 
-    public MetaCloudChannel(IHttpClientFactory http, ILogger<MetaCloudChannel> log)
-    { _http = http; _log = log; }
+    public MetaCloudChannel(IHttpClientFactory http, ILogger<MetaCloudChannel> log, AppDbContext db, IEncryptionService enc, IConfiguration cfg)
+    { _http = http; _log = log; _db = db; _enc = enc; _cfg = cfg; }
 
     public async Task<SendResult> SendAsync(int accountId, OutboundMessage message, CancellationToken ct = default)
     {
         try
         {
-            // In a full deployment the account's phoneNumberId + accessToken are resolved and used here.
-            var client = _http.CreateClient("meta");
+            // Resolve this account's Cloud API credentials (phoneNumberId + accessToken).
+            var acc = accountId > 0 ? await _db.WhatsAppAccounts.FirstOrDefaultAsync(a => a.Id == accountId, ct) : null;
+            if (acc is null || string.IsNullOrWhiteSpace(acc.CredentialsEnc))
+                return new SendResult(false, null, "No WhatsApp Cloud API credentials on this account. Add them under Accounts.");
+
+            Dictionary<string, string?> creds;
+            try { creds = JsonSerializer.Deserialize<Dictionary<string, string?>>(_enc.Decrypt(acc.CredentialsEnc)) ?? new(); }
+            catch { return new SendResult(false, null, "Could not read the stored Cloud API credentials."); }
+
+            var phoneNumberId = creds.GetValueOrDefault("PhoneNumberId");
+            var accessToken = creds.GetValueOrDefault("AccessToken");
+            if (string.IsNullOrWhiteSpace(phoneNumberId) || string.IsNullOrWhiteSpace(accessToken))
+                return new SendResult(false, null, "Cloud API Phone Number ID or Access Token is missing.");
+
+            var apiVersion = _cfg["Meta:ApiVersion"] ?? "v21.0";
+            var toPhone = new string((message.ToPhone ?? "").Where(char.IsDigit).ToArray());
+
             object body = message.MediaType switch
             {
-                MediaType.Image when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "image", image = new { link = message.MediaUrl, caption = message.Body } },
-                MediaType.Video when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "video", video = new { link = message.MediaUrl, caption = message.Body } },
-                MediaType.Document when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "document", document = new { link = message.MediaUrl, caption = message.Body } },
-                MediaType.Audio when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = message.ToPhone, type = "audio", audio = new { link = message.MediaUrl } },
-                _ => new { messaging_product = "whatsapp", to = message.ToPhone, type = "text", text = new { body = message.Body } }
+                MediaType.Image when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = toPhone, type = "image", image = new { link = message.MediaUrl, caption = message.Body } },
+                MediaType.Video when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = toPhone, type = "video", video = new { link = message.MediaUrl, caption = message.Body } },
+                MediaType.Document when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = toPhone, type = "document", document = new { link = message.MediaUrl, caption = message.Body } },
+                MediaType.Audio when !string.IsNullOrWhiteSpace(message.MediaUrl) => new { messaging_product = "whatsapp", to = toPhone, type = "audio", audio = new { link = message.MediaUrl } },
+                _ => new { messaging_product = "whatsapp", to = toPhone, type = "text", text = new { preview_url = false, body = message.Body } }
             };
-            // Endpoint is configured per account; we simulate a successful dispatch id when no live creds.
-            var messageId = $"wamid.cloud.{Guid.NewGuid():N}";
-            _log.LogInformation("CloudApi dispatch for account {AccountId} -> {MessageId}", accountId, messageId);
-            await Task.CompletedTask;
+
+            var client = _http.CreateClient("meta");
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(25));
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"https://graph.facebook.com/{apiVersion}/{phoneNumberId}/messages");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            req.Content = JsonContent.Create(body);
+
+            var resp = await client.SendAsync(req, timeout.Token);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = ExtractMetaError(json) ?? $"Meta returned {(int)resp.StatusCode}";
+                _log.LogWarning("CloudApi send failed for account {AccountId}: {Error}", accountId, err);
+                return new SendResult(false, null, err);
+            }
+            var messageId = ExtractMessageId(json) ?? $"wamid.cloud.{Guid.NewGuid():N}";
+            _log.LogInformation("CloudApi sent for account {AccountId} -> {MessageId}", accountId, messageId);
             return new SendResult(true, messageId, null);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            return new SendResult(false, null, ex.Message);
+            _log.LogError(ex, "CloudApi send error for account {AccountId}", accountId);
+            return new SendResult(false, null, $"Cloud API send failed: {ex.Message}");
         }
+    }
+
+    // Pulls messages[0].id from a successful Graph API response.
+    private static string? ExtractMessageId(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("messages", out var msgs) && msgs.ValueKind == JsonValueKind.Array && msgs.GetArrayLength() > 0
+                && msgs[0].TryGetProperty("id", out var id))
+                return id.GetString();
+        }
+        catch { /* ignore */ }
+        return null;
+    }
+
+    // Pulls error.message from a Graph API error response so the reason is actionable.
+    private static string? ExtractMetaError(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("error", out var err) && err.TryGetProperty("message", out var msg))
+                return msg.GetString();
+        }
+        catch { /* ignore */ }
+        return null;
     }
 }
 
