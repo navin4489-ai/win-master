@@ -191,12 +191,20 @@ public class CampaignWorker : BackgroundService
         }
         else
         {
+            // A "session not connected" error (e.g. bridge 404 — no live WhatsApp session) means
+            // the link dropped even though the DB may still say "Connected". Treat it as a
+            // connection drop: keep the recipient pending, mark the account disconnected, pause
+            // the campaign and trigger reconnect/QR. Never burn the recipient on a dropped session.
+            var notConnected = result.Error is not null &&
+                result.Error.Contains("not connected", StringComparison.OrdinalIgnoreCase);
+
             var stillLive = true;
             if (c.EngineType == EngineType.Baileys)
-                stillLive = string.Equals(await _bridge.StatusAsync(accountId, ct), "connected", StringComparison.OrdinalIgnoreCase);
+                stillLive = !notConnected && string.Equals(await _bridge.StatusAsync(accountId, ct), "connected", StringComparison.OrdinalIgnoreCase);
             if (!stillLive)
             {
                 recipient.Status = RecipientStatus.Pending;
+                if (acc != null && acc.Status == WaAccountStatus.Connected) { acc.Status = WaAccountStatus.Disconnected; await db.SaveChangesAsync(ct); }
                 await PauseForConnectionAsync(db, c, accounts, ct);
                 return;
             }

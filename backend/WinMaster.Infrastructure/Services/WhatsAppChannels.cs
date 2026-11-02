@@ -86,6 +86,16 @@ public class BaileysBridgeChannel : IWhatsAppChannel
             // so failures are actionable instead of an opaque status code.
             var reason = await resp.Content.ReadAsStringAsync(ct);
             reason = ExtractError(reason);
+            // A 404 (or an empty/"not found" body) means the bridge has no live session for this
+            // account — the WhatsApp link dropped (common on free tier after sleep/redeploy).
+            // Report it as a clear "not connected" message so the worker pauses the campaign and
+            // prompts a QR scan instead of permanently failing the recipient with a raw 404.
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound
+                || (!string.IsNullOrWhiteSpace(reason) && reason.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(reason) && reason.Contains("404")))
+            {
+                return new SendResult(false, null, "WhatsApp session not connected. Scan the QR under Accounts to reconnect.");
+            }
             return new SendResult(false, null, string.IsNullOrWhiteSpace(reason) ? $"Bridge returned {(int)resp.StatusCode}" : reason);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
