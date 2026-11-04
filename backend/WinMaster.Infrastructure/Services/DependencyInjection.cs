@@ -25,6 +25,7 @@ public static class DependencyInjection
 
         services.AddDataProtection();
         services.AddHttpClient("bridge");
+        services.AddHttpClient("evolution");
         services.AddHttpClient("ai");
         services.AddHttpClient("lead-discovery");
         services.AddHttpClient("meta", c => c.BaseAddress = new Uri("https://graph.facebook.com/v20.0/"))
@@ -37,6 +38,11 @@ public static class DependencyInjection
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<IWhatsAppChannel, MetaCloudChannel>();
         services.AddScoped<IWhatsAppChannel, BaileysBridgeChannel>();
+        // Evolution API engine: a single stateless client is both the IWhatsAppChannel (send)
+        // and the IEvolutionClient (connect/status/qr). Registered once and surfaced via both.
+        services.AddSingleton<EvolutionClient>();
+        services.AddSingleton<IEvolutionClient>(sp => sp.GetRequiredService<EvolutionClient>());
+        services.AddScoped<IWhatsAppChannel>(sp => sp.GetRequiredService<EvolutionClient>());
         services.AddScoped<IWhatsAppChannelFactory, WhatsAppChannelFactory>();
         // Stateless (IHttpClientFactory + IConfiguration + ILogger only) and injected by
         // the singleton CampaignWorker hosted service, so register it as a singleton.

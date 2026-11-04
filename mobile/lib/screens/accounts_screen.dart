@@ -35,7 +35,7 @@ class AccountsScreen extends ConsumerWidget {
             DropdownButtonFormField<String>(
               initialValue: engine,
               decoration: const InputDecoration(labelText: 'Engine'),
-              items: const [DropdownMenuItem(value: 'Baileys', child: Text('Baileys')), DropdownMenuItem(value: 'CloudApi', child: Text('Cloud API'))],
+              items: const [DropdownMenuItem(value: 'Baileys', child: Text('Baileys')), DropdownMenuItem(value: 'Evolution', child: Text('Evolution')), DropdownMenuItem(value: 'CloudApi', child: Text('Cloud API'))],
               onChanged: (v) => setState(() => engine = v ?? 'Baileys'),
             ),
             const SizedBox(height: 10),
@@ -253,7 +253,7 @@ class AccountsScreen extends ConsumerWidget {
                           Text('${a.sentToday}/${a.effectiveDailyCap} sent today (safe cap)', style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A90))),
                           const SizedBox(height: 8),
                           Wrap(spacing: 6, children: [
-                            if (a.engineType == 'Baileys' && a.status != 'Connected')
+                            if ((a.engineType == 'Baileys' || a.engineType == 'Evolution') && a.status != 'Connected')
                               FilledButton.tonalIcon(onPressed: () => _connect(context, ref, a), icon: const Icon(Icons.qr_code, size: 18), label: const Text('Connect')),
                             if (a.status == 'Connected')
                               OutlinedButton(onPressed: () => _disconnect(context, ref, a), child: const Text('Disconnect')),

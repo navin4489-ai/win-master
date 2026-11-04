@@ -16,8 +16,9 @@ public class AccountService
     private readonly AppDbContext _db;
     private readonly IEncryptionService _enc;
     private readonly IWaBridgeClient _bridge;
-    public AccountService(AppDbContext db, IEncryptionService enc, IWaBridgeClient bridge)
-    { _db = db; _enc = enc; _bridge = bridge; }
+    private readonly IEvolutionClient _evolution;
+    public AccountService(AppDbContext db, IEncryptionService enc, IWaBridgeClient bridge, IEvolutionClient evolution)
+    { _db = db; _enc = enc; _bridge = bridge; _evolution = evolution; }
 
     public async Task<List<WaAccountDto>> ListAsync(int ownerId)
     {
@@ -41,11 +42,11 @@ public class AccountService
         {
             OwnerId = ownerId, EngineType = engine, PhoneNumber = req.PhoneNumber, DisplayName = req.DisplayName,
             ProxyId = req.ProxyId,
-            // A brand-new unofficial (Baileys) number must start in warm-up with a low daily
-            // limit, or WhatsApp restricts it on the first cold bulk run. The official Cloud API
-            // is Meta-approved, so it can start ready with a normal limit.
-            WarmupState = engine == EngineType.Baileys ? WarmupState.Warming : WarmupState.Ready,
-            DailyLimit = engine == EngineType.Baileys ? 50 : 1000,
+            // A brand-new unofficial number (Baileys, or Evolution which wraps Baileys) must start
+            // in warm-up with a low daily limit, or WhatsApp restricts it on the first cold bulk
+            // run. The official Cloud API is Meta-approved, so it can start ready with a normal limit.
+            WarmupState = engine == EngineType.CloudApi ? WarmupState.Ready : WarmupState.Warming,
+            DailyLimit = engine == EngineType.CloudApi ? 1000 : 50,
             CredentialsEnc = req.Credentials is null ? null : _enc.Encrypt(JsonSerializer.Serialize(req.Credentials))
         };
         _db.WhatsAppAccounts.Add(acc);
@@ -122,17 +123,42 @@ public class AccountService
     public async Task<WaAccountDto> ConnectAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
-        if (acc.EngineType != EngineType.Baileys)
-            throw new BusinessException("QR connect is only available for Baileys accounts.");
+        if (acc.EngineType != EngineType.Baileys && acc.EngineType != EngineType.Evolution)
+            throw new BusinessException("QR connect is only available for Baileys and Evolution accounts.");
 
-        // Clear any stale QR and move to Connecting; the real QR arrives via the
-        // bridge callback (POST /api/bridge/events) which flips status to QrReady.
+        // Clear any stale QR and move to Connecting.
         acc.Status = WaAccountStatus.Connecting;
         acc.QrData = null;
         acc.QrPngBase64 = null;
         acc.QrExpiresAt = null;
         await _db.SaveChangesAsync();
 
+        if (acc.EngineType == EngineType.Evolution)
+        {
+            if (!_evolution.IsConfigured)
+            {
+                acc.Status = WaAccountStatus.Error; await _db.SaveChangesAsync();
+                throw new BusinessException("Evolution API is not configured on the server.");
+            }
+            var evoOk = await _evolution.ConnectAsync(id);
+            if (!evoOk)
+            {
+                acc.Status = WaAccountStatus.Error; await _db.SaveChangesAsync();
+                throw new BusinessException("Evolution API is unavailable. Please try again shortly.");
+            }
+            // Evolution QR is polled (GET /qr), so fetch it now and surface via QrAsync.
+            var qr = await _evolution.QrBase64Async(id);
+            if (!string.IsNullOrWhiteSpace(qr))
+            {
+                acc.Status = WaAccountStatus.QrReady;
+                acc.QrPngBase64 = qr;
+                acc.QrExpiresAt = DateTime.UtcNow.AddSeconds(60);
+                await _db.SaveChangesAsync();
+            }
+            return acc.ToDto();
+        }
+
+        // Baileys: the real QR arrives via the bridge callback (POST /api/bridge/events).
         var ok = await _bridge.ConnectAsync(id);
         if (!ok)
         {
@@ -146,13 +172,32 @@ public class AccountService
     public async Task<QrResponse> QrAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
+        // Evolution QR is live-polled from the server; refresh it on each request until connected.
+        if (acc.EngineType == EngineType.Evolution && _evolution.IsConfigured && acc.Status != WaAccountStatus.Connected)
+        {
+            var state = await _evolution.StatusAsync(id);
+            if (string.Equals(state, "connected", StringComparison.OrdinalIgnoreCase))
+            {
+                acc.Status = WaAccountStatus.Connected; acc.LastSeenAt = DateTime.UtcNow;
+                acc.QrData = null; acc.QrPngBase64 = null; acc.QrExpiresAt = null;
+                await _db.SaveChangesAsync();
+                return new QrResponse(null, null, null);
+            }
+            var qr = await _evolution.QrBase64Async(id);
+            if (!string.IsNullOrWhiteSpace(qr))
+            {
+                acc.Status = WaAccountStatus.QrReady; acc.QrPngBase64 = qr; acc.QrExpiresAt = DateTime.UtcNow.AddSeconds(60);
+                await _db.SaveChangesAsync();
+            }
+        }
         return new QrResponse(acc.QrData, acc.QrPngBase64, acc.QrExpiresAt);
     }
 
     public async Task DisconnectAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
-        await _bridge.DisconnectAsync(id, wipe: true);
+        if (acc.EngineType == EngineType.Evolution) await _evolution.DisconnectAsync(id, wipe: true);
+        else await _bridge.DisconnectAsync(id, wipe: true);
         acc.Status = WaAccountStatus.Disconnected;
         acc.QrData = null;
         acc.QrPngBase64 = null;

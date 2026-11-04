@@ -1,0 +1,112 @@
+# Win Master + Evolution API — always-on VM stack.
+#
+# Runs Win Master (API + web + its own Baileys bridge) PLUS Evolution API (a robust
+# self-hosted WhatsApp server: Baileys + optional Cloud API, multi-instance), each with
+# their own Postgres + Redis, all on persistent volumes so sessions survive restarts.
+#
+# Select the "Evolution" engine when creating a WhatsApp account in Win Master, and set
+# EVOLUTION_BASE_URL + EVOLUTION_API_KEY in deploy/.env (same key as below).
+#
+# Usage (on the VM):
+#   cp deploy/.env.example deploy/.env    # set secrets incl. EVOLUTION_API_KEY
+#   docker compose -f deploy/docker-compose.evolution.yml --env-file deploy/.env up -d --build
+#
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---- Evolution API and its backing stores ----
+  evolution_postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  evolution_redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - evo_redis:/data
+
+  evolution:
+    image: atendai/evolution-api:v2.1.1
+    restart: always
+    depends_on:
+      evolution_postgres:
+        condition: service_healthy
+      evolution_redis:
+        condition: service_started
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: "postgresql://evolution:${EVOLUTION_DB_PASSWORD}@evolution_postgres:5432/evolution?schema=public"
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: "redis://evolution_redis:6379/6"
+      CACHE_REDIS_PREFIX_KEY: "evolution"
+      CACHE_LOCAL_ENABLED: "false"
+      QRCODE_LIMIT: "30"
+    volumes:
+      - evo_instances:/evolution/instances
+    # Not exposed to the internet — only Win Master (same network) reaches it on :8080.
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:10000
+      Database__Provider: Postgres
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Disable"
+      Jwt__Secret: ${JWT_SECRET}
+      License__SigningSecret: ${LICENSE_SIGNING_SECRET}
+      Bridge__Key: ${BRIDGE_KEY}
+      Bridge__BaseUrl: http://localhost:3001
+      BRIDGE_PORT: "3001"
+      SESSIONS_DIR: /app/bridge/sessions
+      API_BASE_URL: http://localhost:10000
+      # ---- Evolution engine wiring (reached over the compose network) ----
+      Evolution__BaseUrl: http://evolution:8080
+      Evolution__ApiKey: ${EVOLUTION_API_KEY}
+    volumes:
+      - sessions:/app/bridge/sessions
+    ports:
+      - "80:10000"
+
+volumes:
+  pgdata:
+  sessions:
+  evo_pgdata:
+  evo_redis:
+  evo_instances:

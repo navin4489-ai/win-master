@@ -190,7 +190,7 @@ class _CampaignCreateScreenState extends ConsumerState<CampaignCreateScreen> {
         DropdownButtonFormField<String>(
           initialValue: _engine,
           decoration: const InputDecoration(labelText: 'Engine'),
-          items: const [DropdownMenuItem(value: 'Baileys', child: Text('Baileys')), DropdownMenuItem(value: 'CloudApi', child: Text('Cloud API'))],
+          items: const [DropdownMenuItem(value: 'Baileys', child: Text('Baileys')), DropdownMenuItem(value: 'Evolution', child: Text('Evolution')), DropdownMenuItem(value: 'CloudApi', child: Text('Cloud API'))],
           onChanged: (v) => setState(() { _engine = v ?? 'Baileys'; _preselectAccount(); }),
         ),
         const SizedBox(height: 14),

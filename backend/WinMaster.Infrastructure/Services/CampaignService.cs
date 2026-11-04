@@ -12,7 +12,19 @@ public class CampaignService
 {
     private readonly AppDbContext _db;
     private readonly IWaBridgeClient _bridge;
-    public CampaignService(AppDbContext db, IWaBridgeClient bridge) { _db = db; _bridge = bridge; }
+    private readonly IEvolutionClient _evolution;
+    public CampaignService(AppDbContext db, IWaBridgeClient bridge, IEvolutionClient evolution) { _db = db; _bridge = bridge; _evolution = evolution; }
+    // Test-friendly overload: Evolution engine disabled.
+    public CampaignService(AppDbContext db, IWaBridgeClient bridge) : this(db, bridge, new DisabledEvolutionClient()) { }
+
+    private sealed class DisabledEvolutionClient : IEvolutionClient
+    {
+        public bool IsConfigured => false;
+        public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>("connected");
+        public Task<string?> QrBase64Async(int accountId, CancellationToken ct = default) => Task.FromResult<string?>(null);
+    }
 
     public async Task<PagedResult<CampaignDto>> ListAsync(int ownerId, string? status, string? q, PageQuery page)
     {
@@ -213,10 +225,11 @@ public class CampaignService
             return;
         }
 
-        // Candidate Baileys accounts for this campaign.
+        // Candidate session-based accounts (Baileys or Evolution) for this campaign.
+        var engine = c.EngineType;
         var accounts = c.AccountId.HasValue
             ? await _db.WhatsAppAccounts.Where(a => a.Id == c.AccountId && a.OwnerId == c.OwnerId).ToListAsync()
-            : await _db.WhatsAppAccounts.Where(a => a.OwnerId == c.OwnerId && a.EngineType == EngineType.Baileys).ToListAsync();
+            : await _db.WhatsAppAccounts.Where(a => a.OwnerId == c.OwnerId && a.EngineType == engine).ToListAsync();
 
         if (accounts.Count == 0)
             throw new BusinessException("No WhatsApp account for this campaign. Add and connect one first.");
@@ -230,12 +243,16 @@ public class CampaignService
                     "Starting a campaign now would risk a permanent ban. Wait for the restriction to lift, then try again.");
         }
 
-        // A send is only real when the bridge reports a live "connected" session.
+        // Routes status/connect to the correct engine (Baileys bridge or Evolution server).
+        Task<string?> StatusAsync(int accId) => engine == EngineType.Evolution ? _evolution.StatusAsync(accId) : _bridge.StatusAsync(accId);
+        Task<bool> ConnectKick(int accId) => engine == EngineType.Evolution ? _evolution.ConnectAsync(accId) : _bridge.ConnectAsync(accId);
+
+        // A send is only real when the engine reports a live "connected" session.
         var connectedId = 0;
         var bridgeReachable = false;
         foreach (var a in accounts)
         {
-            var status = await _bridge.StatusAsync(a.Id);
+            var status = await StatusAsync(a.Id);
             if (status is not null) bridgeReachable = true;
             if (string.Equals(status, "connected", StringComparison.OrdinalIgnoreCase)) { connectedId = a.Id; break; }
         }
@@ -254,14 +271,13 @@ public class CampaignService
         await _db.SaveChangesAsync();
 
         if (!bridgeReachable)
-            throw new BusinessException("WhatsApp engine is offline. Open Accounts, connect a Baileys account and scan the QR, then try again.");
+            throw new BusinessException("WhatsApp engine is offline. Open Accounts, connect this account and scan the QR, then try again.");
 
-        // An account already exists but the session dropped (sleep/redeploy). Kick off
-        // reconnection for every candidate so the bridge resumes or regenerates the QR,
-        // rather than only telling the user to go connect manually.
+        // An account already exists but the session dropped. Kick off reconnection for every
+        // candidate so the engine resumes or regenerates the QR.
         foreach (var a in accounts)
         {
-            try { await _bridge.ConnectAsync(a.Id); }
+            try { await ConnectKick(a.Id); }
             catch { /* best-effort: a failed kick-off must not mask the guidance below */ }
         }
         throw new BusinessException("Reconnecting WhatsApp — scan the QR shown under Accounts → Connect to link your phone, then start the campaign. It will begin sending as soon as the phone links.");

@@ -24,7 +24,7 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
         <div class="muted" style="font-size:.8rem;margin:.4rem 0">Sent today {{ a.sentToday }}/{{ safeCap(a) }} safe cap · warmup {{ a.warmupState }}</div>
         <div class="progress"><span [style.width.%]="pct(a)"></span></div>
         <div class="row-actions" style="margin-top:.7rem">
-          @if (a.engineType === 'Baileys' && a.status !== 'Connected') { <button class="btn btn-primary btn-sm" (click)="connect(a)">Connect (QR)</button> }
+          @if ((a.engineType === 'Baileys' || a.engineType === 'Evolution') && a.status !== 'Connected') { <button class="btn btn-primary btn-sm" (click)="connect(a)">Connect (QR)</button> }
           @if (a.status === 'Connected') { <button class="btn btn-ghost btn-sm" (click)="disconnect(a)">Disconnect</button> }
           <button class="btn btn-ghost btn-sm" (click)="openAntiBan(a)">Anti-ban</button>
           @if (!a.isDefault) { <button class="btn btn-ghost btn-sm" (click)="makeDefault(a)" title="Pre-select this number when creating a campaign">Make default</button> }
@@ -40,7 +40,7 @@ import { WaAccount, Proxy, AntiBan } from '../../core/models';
       <div class="modal-head">Add WhatsApp account</div>
       <div class="modal-body">
         <div class="field"><label>Display name</label><input class="input" [(ngModel)]="form.displayName" /></div>
-        <div class="field"><label>Engine</label><select class="input" [(ngModel)]="form.engineType"><option>Baileys</option><option>CloudApi</option></select></div>
+        <div class="field"><label>Engine</label><select class="input" [(ngModel)]="form.engineType"><option>Baileys</option><option>Evolution</option><option>CloudApi</option></select></div>
         <div class="field"><label>Phone number</label><input class="input" [(ngModel)]="form.phoneNumber" placeholder="+1..." /></div>
         @if (form.engineType === 'CloudApi') {
           <div style="margin:.4rem 0;padding:.5rem .6rem;border-radius:8px;background:rgba(37,211,102,.08);font-size:.8rem;color:var(--muted)">

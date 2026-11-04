@@ -19,15 +19,19 @@ public class CampaignWorker : BackgroundService
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<CampaignWorker> _log;
     private readonly IWaBridgeClient _bridge;
+    private readonly IEvolutionClient _evolution;
     private readonly SpintaxService _spintax = new();
     private readonly PersonalizationService _personalize = new();
 
-    public CampaignWorker(IServiceScopeFactory scopes, ILogger<CampaignWorker> log, IWaBridgeClient bridge)
-    { _scopes = scopes; _log = log; _bridge = bridge; }
+    public CampaignWorker(IServiceScopeFactory scopes, ILogger<CampaignWorker> log, IWaBridgeClient bridge, IEvolutionClient evolution)
+    { _scopes = scopes; _log = log; _bridge = bridge; _evolution = evolution; }
 
     // Keeps direct unit-test construction compatible; production uses DI above.
+    public CampaignWorker(IServiceScopeFactory scopes, ILogger<CampaignWorker> log, IWaBridgeClient bridge)
+        : this(scopes, log, bridge, new DisabledEvolutionClient()) { }
+
     public CampaignWorker(IServiceScopeFactory scopes, ILogger<CampaignWorker> log)
-        : this(scopes, log, new DisabledBridgeClient()) { }
+        : this(scopes, log, new DisabledBridgeClient(), new DisabledEvolutionClient()) { }
 
     private sealed class DisabledBridgeClient : IWaBridgeClient
     {
@@ -35,6 +39,23 @@ public class CampaignWorker : BackgroundService
         public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
         public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>("connected");
     }
+
+    private sealed class DisabledEvolutionClient : IEvolutionClient
+    {
+        public bool IsConfigured => false;
+        public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>("connected");
+        public Task<string?> QrBase64Async(int accountId, CancellationToken ct = default) => Task.FromResult<string?>(null);
+    }
+
+    /// <summary>Live session status for an account, routed by engine (Baileys bridge vs Evolution).
+    /// Returns "connected"/"connecting"/"qr"/"disconnected" or null when the backend is unreachable.</summary>
+    private Task<string?> LiveStatusAsync(EngineType engine, int accountId, CancellationToken ct) =>
+        engine == EngineType.Evolution ? _evolution.StatusAsync(accountId, ct) : _bridge.StatusAsync(accountId, ct);
+
+    private Task<bool> LiveConnectAsync(EngineType engine, int accountId, CancellationToken ct) =>
+        engine == EngineType.Evolution ? _evolution.ConnectAsync(accountId, ct) : _bridge.ConnectAsync(accountId, ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -216,8 +237,8 @@ public class CampaignWorker : BackgroundService
                 result.Error.Contains("not connected", StringComparison.OrdinalIgnoreCase);
 
             var stillLive = true;
-            if (c.EngineType == EngineType.Baileys)
-                stillLive = !notConnected && string.Equals(await _bridge.StatusAsync(accountId, ct), "connected", StringComparison.OrdinalIgnoreCase);
+            if (c.EngineType == EngineType.Baileys || c.EngineType == EngineType.Evolution)
+                stillLive = !notConnected && string.Equals(await LiveStatusAsync(c.EngineType, accountId, ct), "connected", StringComparison.OrdinalIgnoreCase);
             if (!stillLive)
             {
                 recipient.Status = RecipientStatus.Pending;
@@ -353,43 +374,44 @@ public class CampaignWorker : BackgroundService
     /// a previously connection-paused campaign that is live again is auto-resumed.</summary>
     private async Task<bool> EnsureLiveAsync(AppDbContext db, Campaign c, List<int> accounts, CancellationToken ct)
     {
-        if (c.EngineType != EngineType.Baileys) return true;
+        // CloudApi has no session; it is always "live".
+        if (c.EngineType == EngineType.CloudApi) return true;
 
         var live = false;
         foreach (var candidate in accounts)
         {
-            if (string.Equals(await _bridge.StatusAsync(candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
+            if (string.Equals(await LiveStatusAsync(c.EngineType, candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
         }
 
         if (!live)
         {
-            // The bridge reports not-connected. But if the account is LINKED (DB status Connected
-            // and it has persisted credentials), the in-memory session was almost certainly just
-            // dropped by a free-tier restart and only needs to rehydrate. Kick a reconnect and
-            // give it a short grace window instead of immediately pausing with "disconnected" —
-            // this is the fix for "account connected but campaign says disconnected".
-            var linked = await db.WhatsAppAccounts
-                .Where(a => accounts.Contains(a.Id) && a.Status == WaAccountStatus.Connected)
-                .Select(a => a.Id).ToListAsync(ct);
-            var hasCreds = linked.Count > 0 && await db.WaSessionStates
-                .AnyAsync(s => linked.Contains(s.AccountId) && s.Key == "creds", ct);
+            // Not connected right now. If the account is marked Connected in the DB, the live
+            // session likely just needs to rehydrate (free-tier restart for Baileys, or an
+            // Evolution instance that is reconnecting). Kick a reconnect and give a short grace
+            // window instead of immediately pausing — the fix for "connected but says disconnected".
+            // For Baileys we additionally require persisted creds; Evolution persists its own session.
+            var linkedQuery = db.WhatsAppAccounts.Where(a => accounts.Contains(a.Id) && a.Status == WaAccountStatus.Connected);
+            var linked = await linkedQuery.Select(a => a.Id).ToListAsync(ct);
+            var canRehydrate = c.EngineType == EngineType.Evolution
+                ? linked.Count > 0
+                : linked.Count > 0 && await db.WaSessionStates.AnyAsync(s => linked.Contains(s.AccountId) && s.Key == "creds", ct);
 
-            if (hasCreds)
+            if (canRehydrate)
             {
                 foreach (var accountId in linked)
                 {
-                    var status = await _bridge.StatusAsync(accountId, ct);
+                    var status = await LiveStatusAsync(c.EngineType, accountId, ct);
                     if (!string.Equals(status, "connecting", StringComparison.OrdinalIgnoreCase)
                         && !string.Equals(status, "qr", StringComparison.OrdinalIgnoreCase))
                     {
-                        await _bridge.ConnectAsync(accountId, ct); // wake the restore from saved creds
+                        await LiveConnectAsync(c.EngineType, accountId, ct); // wake the restore
                     }
                 }
-                // Brief grace: re-check once after giving the socket a moment to come up.
+                // Brief grace: re-check once after giving the session a moment to come up.
                 await Task.Delay(TimeSpan.FromSeconds(3), ct);
                 foreach (var candidate in linked)
                 {
-                    if (string.Equals(await _bridge.StatusAsync(candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
+                    if (string.Equals(await LiveStatusAsync(c.EngineType, candidate, ct), "connected", StringComparison.OrdinalIgnoreCase)) { live = true; break; }
                 }
             }
         }
@@ -427,11 +449,11 @@ public class CampaignWorker : BackgroundService
         {
             foreach (var accountId in accounts)
             {
-                var status = await _bridge.StatusAsync(accountId, ct);
+                var status = await LiveStatusAsync(c.EngineType, accountId, ct);
                 if (!string.Equals(status, "connecting", StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(status, "qr", StringComparison.OrdinalIgnoreCase))
                 {
-                    await _bridge.ConnectAsync(accountId, ct);
+                    await LiveConnectAsync(c.EngineType, accountId, ct);
                 }
             }
             _log.LogWarning("Campaign {CampaignId} paused because WhatsApp is disconnected.", c.Id);
