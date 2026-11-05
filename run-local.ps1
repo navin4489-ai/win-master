@@ -1,17 +1,27 @@
 # Run Win Master locally on this PC (no Docker) — API + Angular web + WhatsApp bridge.
 # Requires: .NET 9 SDK and Node.js (already installed on this machine).
-# Uses a local SQLite database; the WhatsApp session is stored on this PC and stays
-# connected while this window is open. WhatsApp Web (Chromium) also works here.
+#
+# The API connects to the SHARED Render Postgres database (same data as the Render site —
+# no separate local DB, no sync drift). The WhatsApp session is stored on this PC and stays
+# connected while this window is open, so campaign sending works here.
 #
 #   Start:  double-click start-local.cmd   (or run  .\run-local.ps1  from this folder)
 #   Open:   http://localhost:5249/         (login: admin@winmaster.io / Win@12345)
 #   Stop:   press Ctrl+C in this window.
+#
+# NOTE: Render's free Postgres expires ~30 days after creation. When that happens, create a
+# new DB on Render and paste its External Database URL into $DatabaseUrl below.
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $apiPort = 5249
 $bridgePort = 3001
 $bridgeKey = "dev-bridge-key"
+
+# Shared Render Postgres (External Database URL). Env var DATABASE_URL overrides this if set.
+$DatabaseUrl = if ($env:DATABASE_URL) { $env:DATABASE_URL } else {
+  "postgresql://winmaster_user:ONHS3ubTARWpTsUiT5NFDynWru0TlnxL@dpg-dbgrcsnf3r2c73ag5mi0-a.oregon-postgres.render.com/winmaster"
+}
 
 Write-Host "`n=== Win Master - local run ===" -ForegroundColor Green
 
@@ -50,15 +60,17 @@ $bridge = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$bridge
 Write-Host "[3/3] Starting Win Master API on http://localhost:$apiPort ..." -ForegroundColor Cyan
 Write-Host "`n  -> Open  http://localhost:$apiPort/  and log in (admin@winmaster.io / Win@12345)`n" -ForegroundColor Yellow
 Push-Location (Join-Path $root "backend\WinMaster.API")
-$env:ASPNETCORE_ENVIRONMENT = "Development"
+# IMPORTANT: Production env (not Development) so the app uses the Postgres provider, NOT the
+# SQLite in appsettings.Development.json. This points the LOCAL app at the SHARED Render DB.
+$env:ASPNETCORE_ENVIRONMENT = "Production"
 $env:ASPNETCORE_URLS = "http://localhost:$apiPort"
 $env:Bridge__Key = $bridgeKey
 $env:Bridge__BaseUrl = "http://localhost:$bridgePort"
-# Keep the SQLite database in a simple path with NO spaces (the repo folder has spaces,
-# which can cause SQLite 'disk I/O error' under WAL mode / OneDrive). This is stable.
-$dataDir = "C:\winmaster-data"
-New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-$env:ConnectionStrings__DefaultConnection = "Data Source=$dataDir\winmaster.db"
+# Use the shared Render Postgres (one database for both local and Render — always in sync).
+$env:Database__Provider = "Postgres"
+$env:DATABASE_URL = $DatabaseUrl
+# Sessions dir (WhatsApp creds) still lives on this PC.
+New-Item -ItemType Directory -Force -Path "C:\winmaster-data" | Out-Null
 try {
   dotnet run --no-launch-profile
 } finally {
