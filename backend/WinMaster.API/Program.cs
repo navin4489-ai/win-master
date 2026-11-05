@@ -56,8 +56,8 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddCors(o => o.AddPolicy("web", p =>
     p.WithOrigins(
-        "http://localhost:4200", "http://localhost:8080", "http://localhost:5173",
-        "https://winmaster.wintechinov.com", "https://win-master.onrender.com")
+        "http://localhost:4200", "http://localhost:8080", "http://localhost:5173", "http://localhost:5249",
+        "https://winmaster.wintechinov.com", "https://win-master.onrender.com", "https://app.wintechinov.com")
      .AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();

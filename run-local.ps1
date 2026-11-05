@@ -40,7 +40,7 @@ $bridgeEnv = @(
   "set BRIDGE_PORT=$bridgePort",
   "set API_BASE_URL=http://localhost:$apiPort",
   "set BRIDGE_KEY=$bridgeKey",
-  "set SESSIONS_DIR=$bridgeDir\sessions",
+  "set SESSIONS_DIR=C:\winmaster-data\sessions",
   "set PUPPETEER_SKIP_DOWNLOAD=true",
   "node src\server.js"
 ) -join " && "
@@ -54,6 +54,11 @@ $env:ASPNETCORE_ENVIRONMENT = "Development"
 $env:ASPNETCORE_URLS = "http://localhost:$apiPort"
 $env:Bridge__Key = $bridgeKey
 $env:Bridge__BaseUrl = "http://localhost:$bridgePort"
+# Keep the SQLite database in a simple path with NO spaces (the repo folder has spaces,
+# which can cause SQLite 'disk I/O error' under WAL mode / OneDrive). This is stable.
+$dataDir = "C:\winmaster-data"
+New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+$env:ConnectionStrings__DefaultConnection = "Data Source=$dataDir\winmaster.db"
 try {
   dotnet run --no-launch-profile
 } finally {
