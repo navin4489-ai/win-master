@@ -39,3 +39,10 @@ services/wa-bridge/sessions/
 
 # VM deploy secrets
 deploy/.env
+# Local run + tunnel artifacts
+backend/WinMaster.API/wwwroot/
+tools/
+cloudflared-config.yml
+local-run.log
+services/wa-bridge/sessions/
+backend/WinMaster.API/winmaster.db
