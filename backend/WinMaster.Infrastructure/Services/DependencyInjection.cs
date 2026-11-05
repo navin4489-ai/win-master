@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<IWhatsAppChannel, MetaCloudChannel>();
         services.AddScoped<IWhatsAppChannel, BaileysBridgeChannel>();
+        services.AddScoped<IWhatsAppChannel, WhatsAppWebChannel>();
         // Evolution API engine: a single stateless client is both the IWhatsAppChannel (send)
         // and the IEvolutionClient (connect/status/qr). Registered once and surfaced via both.
         services.AddSingleton<EvolutionClient>();

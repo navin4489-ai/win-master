@@ -123,8 +123,8 @@ public class AccountService
     public async Task<WaAccountDto> ConnectAsync(int ownerId, int id)
     {
         var acc = await Owned(ownerId, id);
-        if (acc.EngineType != EngineType.Baileys && acc.EngineType != EngineType.Evolution)
-            throw new BusinessException("QR connect is only available for Baileys and Evolution accounts.");
+        if (acc.EngineType != EngineType.Baileys && acc.EngineType != EngineType.Evolution && acc.EngineType != EngineType.WhatsAppWeb)
+            throw new BusinessException("QR connect is only available for Baileys, WhatsApp Web and Evolution accounts.");
 
         // Clear any stale QR and move to Connecting.
         acc.Status = WaAccountStatus.Connecting;
@@ -158,8 +158,10 @@ public class AccountService
             return acc.ToDto();
         }
 
-        // Baileys: the real QR arrives via the bridge callback (POST /api/bridge/events).
-        var ok = await _bridge.ConnectAsync(id);
+        // Baileys and WhatsApp Web both run on the bridge; the real QR arrives via the bridge
+        // callback (POST /api/bridge/events). WhatsApp Web is selected with the "wweb" engine hint.
+        var engineParam = acc.EngineType == EngineType.WhatsAppWeb ? "wweb" : null;
+        var ok = await _bridge.ConnectAsync(id, engineParam, default);
         if (!ok)
         {
             acc.Status = WaAccountStatus.Error;
@@ -197,7 +199,7 @@ public class AccountService
     {
         var acc = await Owned(ownerId, id);
         if (acc.EngineType == EngineType.Evolution) await _evolution.DisconnectAsync(id, wipe: true);
-        else await _bridge.DisconnectAsync(id, wipe: true);
+        else await _bridge.DisconnectAsync(id, true, acc.EngineType == EngineType.WhatsAppWeb ? "wweb" : null, default);
         acc.Status = WaAccountStatus.Disconnected;
         acc.QrData = null;
         acc.QrPngBase64 = null;

@@ -243,9 +243,10 @@ public class CampaignService
                     "Starting a campaign now would risk a permanent ban. Wait for the restriction to lift, then try again.");
         }
 
-        // Routes status/connect to the correct engine (Baileys bridge or Evolution server).
-        Task<string?> StatusAsync(int accId) => engine == EngineType.Evolution ? _evolution.StatusAsync(accId) : _bridge.StatusAsync(accId);
-        Task<bool> ConnectKick(int accId) => engine == EngineType.Evolution ? _evolution.ConnectAsync(accId) : _bridge.ConnectAsync(accId);
+        // Routes status/connect to the correct engine (Baileys/WhatsApp Web via the bridge, Evolution via its server).
+        var bridgeEngine = engine == EngineType.WhatsAppWeb ? "wweb" : null;
+        Task<string?> StatusAsync(int accId) => engine == EngineType.Evolution ? _evolution.StatusAsync(accId) : _bridge.StatusAsync(accId, bridgeEngine, default);
+        Task<bool> ConnectKick(int accId) => engine == EngineType.Evolution ? _evolution.ConnectAsync(accId) : _bridge.ConnectAsync(accId, bridgeEngine, default);
 
         // A send is only real when the engine reports a live "connected" session.
         var connectedId = 0;

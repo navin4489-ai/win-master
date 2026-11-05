@@ -36,8 +36,11 @@ public class CampaignWorker : BackgroundService
     private sealed class DisabledBridgeClient : IWaBridgeClient
     {
         public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> ConnectAsync(int accountId, string? engine, CancellationToken ct = default) => Task.FromResult(false);
         public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> DisconnectAsync(int accountId, bool wipe, string? engine, CancellationToken ct = default) => Task.FromResult(true);
         public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>("connected");
+        public Task<string?> StatusAsync(int accountId, string? engine, CancellationToken ct = default) => Task.FromResult<string?>("connected");
     }
 
     private sealed class DisabledEvolutionClient : IEvolutionClient
@@ -49,13 +52,18 @@ public class CampaignWorker : BackgroundService
         public Task<string?> QrBase64Async(int accountId, CancellationToken ct = default) => Task.FromResult<string?>(null);
     }
 
-    /// <summary>Live session status for an account, routed by engine (Baileys bridge vs Evolution).
-    /// Returns "connected"/"connecting"/"qr"/"disconnected" or null when the backend is unreachable.</summary>
+    /// <summary>Live session status for an account, routed by engine (Baileys/WhatsApp Web via the
+    /// bridge, Evolution via its server). Returns "connected"/"connecting"/"qr"/"disconnected" or null.</summary>
     private Task<string?> LiveStatusAsync(EngineType engine, int accountId, CancellationToken ct) =>
-        engine == EngineType.Evolution ? _evolution.StatusAsync(accountId, ct) : _bridge.StatusAsync(accountId, ct);
+        engine == EngineType.Evolution ? _evolution.StatusAsync(accountId, ct)
+        : _bridge.StatusAsync(accountId, BridgeEngineParam(engine), ct);
 
     private Task<bool> LiveConnectAsync(EngineType engine, int accountId, CancellationToken ct) =>
-        engine == EngineType.Evolution ? _evolution.ConnectAsync(accountId, ct) : _bridge.ConnectAsync(accountId, ct);
+        engine == EngineType.Evolution ? _evolution.ConnectAsync(accountId, ct)
+        : _bridge.ConnectAsync(accountId, BridgeEngineParam(engine), ct);
+
+    /// <summary>Bridge engine hint: "wweb" for WhatsApp Web accounts, null (Baileys default) otherwise.</summary>
+    private static string? BridgeEngineParam(EngineType engine) => engine == EngineType.WhatsAppWeb ? "wweb" : null;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -389,10 +397,11 @@ public class CampaignWorker : BackgroundService
             // session likely just needs to rehydrate (free-tier restart for Baileys, or an
             // Evolution instance that is reconnecting). Kick a reconnect and give a short grace
             // window instead of immediately pausing — the fix for "connected but says disconnected".
-            // For Baileys we additionally require persisted creds; Evolution persists its own session.
+            // For Baileys we additionally require persisted creds (DB-backed); Evolution and
+            // WhatsApp Web persist their own session (server/disk), so DB-Connected is enough.
             var linkedQuery = db.WhatsAppAccounts.Where(a => accounts.Contains(a.Id) && a.Status == WaAccountStatus.Connected);
             var linked = await linkedQuery.Select(a => a.Id).ToListAsync(ct);
-            var canRehydrate = c.EngineType == EngineType.Evolution
+            var canRehydrate = c.EngineType is EngineType.Evolution or EngineType.WhatsAppWeb
                 ? linked.Count > 0
                 : linked.Count > 0 && await db.WaSessionStates.AnyAsync(s => linked.Contains(s.AccountId) && s.Key == "creds", ct);
 

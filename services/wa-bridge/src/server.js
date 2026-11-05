@@ -1,14 +1,8 @@
 import express from "express";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import {
-  startSession,
-  stopSession,
-  sessionStatus,
-  sendMessage,
-  getQr,
-  sessionCount,
-} from "./session-manager.js";
+import * as baileys from "./session-manager.js";
+import * as wweb from "./wweb-session-manager.js";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -23,8 +17,16 @@ process.on("unhandledRejection", (reason) => {
   logger.error({ reason: String(reason) }, "unhandledRejection (continuing)");
 });
 
+// Picks the engine implementation for a request. "wweb" = WhatsApp Web automation
+// (whatsapp-web.js); anything else defaults to Baileys. The API passes ?engine=wweb for
+// WhatsApp Web accounts; both engines expose the same session-manager contract.
+function engineOf(req) {
+  const e = (req.query.engine || req.body?.engine || "").toString().toLowerCase();
+  return e === "wweb" || e === "whatsappweb" ? wweb : baileys;
+}
+
 // Health check (unauthenticated) for container orchestration.
-app.get("/healthz", (_req, res) => res.json({ status: "healthy", sessions: sessionCount() }));
+app.get("/healthz", (_req, res) => res.json({ status: "healthy", sessions: baileys.sessionCount() + wweb.sessionCount() }));
 
 // All session routes require the shared bridge key. This is server-to-server
 // only; the API holds the same key in Bridge__Key.
@@ -46,7 +48,7 @@ function accountId(req) {
 app.post("/sessions/:id/connect", async (req, res) => {
   try {
     const reset = req.query.reset === "true" || req.body?.reset === true;
-    const result = await startSession(accountId(req), { reset });
+    const result = await engineOf(req).startSession(accountId(req), { reset });
     res.json(result);
   } catch (err) {
     logger.error({ err: err.message }, "connect failed");
@@ -58,7 +60,7 @@ app.post("/sessions/:id/disconnect", async (req, res) => {
   try {
     // wipe=true fully unlinks the device and clears stored credentials.
     const wipe = req.query.wipe === "true" || req.body?.wipe === true;
-    await stopSession(accountId(req), { wipe });
+    await engineOf(req).stopSession(accountId(req), { wipe });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -67,7 +69,7 @@ app.post("/sessions/:id/disconnect", async (req, res) => {
 
 app.get("/sessions/:id/status", (req, res) => {
   try {
-    res.json({ status: sessionStatus(accountId(req)) });
+    res.json({ status: engineOf(req).sessionStatus(accountId(req)) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -76,7 +78,7 @@ app.get("/sessions/:id/status", (req, res) => {
 // Returns the current QR (data + PNG base64) if one is pending for this session.
 app.get("/sessions/:id/qr", (req, res) => {
   try {
-    const qr = getQr(accountId(req));
+    const qr = engineOf(req).getQr(accountId(req));
     if (!qr) return res.status(404).json({ error: "no qr available" });
     res.json({
       qrData: qr.qrData,
@@ -91,7 +93,7 @@ app.get("/sessions/:id/qr", (req, res) => {
 app.post("/sessions/:id/send", async (req, res) => {
   try {
     const { to, text, mediaUrl, mediaType } = req.body ?? {};
-    const messageId = await sendMessage(accountId(req), { to, text, mediaUrl, mediaType });
+    const messageId = await engineOf(req).sendMessage(accountId(req), { to, text, mediaUrl, mediaType });
     res.json({ messageId });
   } catch (err) {
     logger.warn({ err: err.message }, "send failed");
@@ -106,9 +108,9 @@ app.listen(config.port, async () => {
   );
   // Pre-warm Baileys (heavy import + WA version fetch) so the first QR request is fast
   // instead of paying the cold-start cost while the user waits.
-  const sm = await import("./session-manager.js");
-  sm.warmup().catch(() => {});
-  // Restore any persisted sessions from the DB so linked accounts keep working
+  baileys.warmup().catch(() => {});
+  // Restore any persisted Baileys sessions from the DB so linked accounts keep working
   // across restarts without a re-scan. Give the API a moment to be ready.
-  setTimeout(() => sm.restoreSessions(), 3000);
+  setTimeout(() => baileys.restoreSessions(), 3000);
 });
+

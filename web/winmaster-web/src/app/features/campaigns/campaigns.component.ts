@@ -82,7 +82,7 @@ import { Campaign, ContactGroup, Template, WaAccount } from '../../core/models';
             </div>
           }
           <div class="flex gap">
-            <div class="field" style="flex:1"><label>Engine</label><select class="input" [(ngModel)]="form.engineType" (change)="onEngineChange()"><option>Baileys</option><option>Evolution</option><option>CloudApi</option></select></div>
+            <div class="field" style="flex:1"><label>Engine</label><select class="input" [(ngModel)]="form.engineType" (change)="onEngineChange()"><option>Baileys</option><option value="WhatsAppWeb">WhatsApp Web</option><option>Evolution</option><option>CloudApi</option></select></div>
             <div class="field" style="flex:1"><label>Rotation</label><select class="input" [(ngModel)]="form.rotationMode"><option>RoundRobin</option><option>Sequential</option></select></div>
           </div>
           <div class="field">

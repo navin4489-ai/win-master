@@ -10,6 +10,8 @@ RUN npm run build -- --configuration production
 # ---------- Stage 2: install Node bridge dependencies ----------
 FROM node:20-alpine AS bridge
 WORKDIR /bridge
+# Don't let puppeteer download its own Chromium; the runtime image provides it.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 COPY services/wa-bridge/package*.json ./
 RUN npm ci --omit=dev || npm install --omit=dev
 COPY services/wa-bridge/src ./src
@@ -28,11 +30,16 @@ WORKDIR /app
 # Install Node.js so the WhatsApp bridge can run in the same container.
 # On Render's free tier a separate always-on service isn't available, so the
 # bridge is co-hosted with the API and reached over localhost.
+# Chromium is installed for the WhatsApp Web (whatsapp-web.js) engine; puppeteer is
+# pointed at the system Chromium so it doesn't download its own (smaller image, ARM-safe).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends nodejs chromium fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libasound2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libxfixes3 libxext6 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # .NET API + Angular static files.
 COPY --from=api /app/publish ./

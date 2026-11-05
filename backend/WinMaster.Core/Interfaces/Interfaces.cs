@@ -40,19 +40,23 @@ public interface IWhatsAppChannelFactory
     IWhatsAppChannel For(WinMaster.Core.EngineType engine);
 }
 
-/// <summary>Controls Baileys sessions on the out-of-process bridge (connect/disconnect).</summary>
+/// <summary>Controls out-of-process bridge sessions (Baileys or WhatsApp Web) — connect/disconnect/status.
+/// The <paramref name="engine"/> hint ("baileys" or "wweb") selects the engine inside the bridge.</summary>
 public interface IWaBridgeClient
 {
     /// <summary>Asks the bridge to start (or reconnect) a session. The QR arrives
     /// asynchronously via the bridge callback. Returns false when the bridge is unreachable.</summary>
     Task<bool> ConnectAsync(int accountId, CancellationToken ct = default);
+    Task<bool> ConnectAsync(int accountId, string? engine, CancellationToken ct = default);
 
     /// <summary>Stops a session. <paramref name="wipe"/> unlinks the device and clears stored credentials.</summary>
     Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default);
+    Task<bool> DisconnectAsync(int accountId, bool wipe, string? engine, CancellationToken ct = default);
 
     /// <summary>Returns the bridge's live session status ("connected", "qr", "connecting",
     /// "disconnected"), or null when the bridge itself is unreachable.</summary>
     Task<string?> StatusAsync(int accountId, CancellationToken ct = default);
+    Task<string?> StatusAsync(int accountId, string? engine, CancellationToken ct = default);
 }
 
 public interface IPushService

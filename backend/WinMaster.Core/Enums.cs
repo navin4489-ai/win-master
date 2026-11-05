@@ -2,7 +2,7 @@ namespace WinMaster.Core;
 
 public enum UserRole { User = 0, Reseller = 1, Admin = 2, SuperAdmin = 3 }
 
-public enum EngineType { Baileys = 0, CloudApi = 1, Evolution = 2 }
+public enum EngineType { Baileys = 0, CloudApi = 1, Evolution = 2, WhatsAppWeb = 3 }
 
 /// <summary>Additional inbound/outbound business communication channels.</summary>
 public enum CommunicationChannel { WhatsApp = 0, FacebookMessenger = 1, Instagram = 2, Email = 3 }

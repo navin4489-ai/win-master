@@ -32,8 +32,11 @@ public class CampaignSafetyEnforcementTests
     {
         public string Status = "connected";
         public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> ConnectAsync(int accountId, string? engine, CancellationToken ct = default) => Task.FromResult(true);
         public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> DisconnectAsync(int accountId, bool wipe, string? engine, CancellationToken ct = default) => Task.FromResult(true);
         public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>(Status);
+        public Task<string?> StatusAsync(int accountId, string? engine, CancellationToken ct = default) => Task.FromResult<string?>(Status);
     }
 
     /// <summary>Channel that returns a controllable error for every send.</summary>

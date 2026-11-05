@@ -28,8 +28,11 @@ public class CampaignReliabilityTests
         public string Status = "connected";
         public int ConnectCalls;
         public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) { ConnectCalls++; return Task.FromResult(true); }
+        public Task<bool> ConnectAsync(int accountId, string? engine, CancellationToken ct = default) { ConnectCalls++; return Task.FromResult(true); }
         public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> DisconnectAsync(int accountId, bool wipe, string? engine, CancellationToken ct = default) => Task.FromResult(true);
         public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) => Task.FromResult<string?>(Status);
+        public Task<string?> StatusAsync(int accountId, string? engine, CancellationToken ct = default) => Task.FromResult<string?>(Status);
     }
 
     private sealed class Channel : IWhatsAppChannel

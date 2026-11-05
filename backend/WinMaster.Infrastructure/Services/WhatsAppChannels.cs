@@ -115,10 +115,13 @@ public class BaileysBridgeChannel : IWhatsAppChannel
     private readonly IHttpClientFactory _http;
     private readonly IConfiguration _cfg;
     private readonly ILogger<BaileysBridgeChannel> _log;
-    public EngineType Engine => EngineType.Baileys;
+    public virtual EngineType Engine => EngineType.Baileys;
 
     public BaileysBridgeChannel(IHttpClientFactory http, IConfiguration cfg, ILogger<BaileysBridgeChannel> log)
     { _http = http; _cfg = cfg; _log = log; }
+
+    /// <summary>Engine query appended to bridge send ("" for Baileys, "?engine=wweb" for WhatsApp Web).</summary>
+    protected virtual string EngineQuery => "";
 
     public async Task<SendResult> SendAsync(int accountId, OutboundMessage message, CancellationToken ct = default)
     {
@@ -141,7 +144,7 @@ public class BaileysBridgeChannel : IWhatsAppChannel
             // Bound each send so a hung bridge/session can never freeze the campaign worker.
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(25));
-            var resp = await client.PostAsJsonAsync($"{baseUrl}/sessions/{accountId}/send", payload, timeout.Token);
+            var resp = await client.PostAsJsonAsync($"{baseUrl}/sessions/{accountId}/send{EngineQuery}", payload, timeout.Token);
             if (resp.IsSuccessStatusCode)
             {
                 var result = await resp.Content.ReadFromJsonAsync<BridgeSendResponse>(cancellationToken: ct);
@@ -202,6 +205,19 @@ public class BaileysBridgeChannel : IWhatsAppChannel
     }
 }
 
+/// <summary>
+/// WhatsApp Web automation engine: sends through the same bridge as Baileys but drives a real
+/// headless Chromium logged in to web.whatsapp.com (whatsapp-web.js) — i.e. it behaves like a
+/// person using the web client. Reuses all of the bridge send logic; only the engine query differs.
+/// </summary>
+public class WhatsAppWebChannel : BaileysBridgeChannel
+{
+    public WhatsAppWebChannel(IHttpClientFactory http, IConfiguration cfg, ILogger<BaileysBridgeChannel> log)
+        : base(http, cfg, log) { }
+    public override EngineType Engine => EngineType.WhatsAppWeb;
+    protected override string EngineQuery => "?engine=wweb";
+}
+
 /// <summary>Controls Baileys sessions on the out-of-process bridge.</summary>
 public class WaBridgeClient : IWaBridgeClient
 {
@@ -213,19 +229,26 @@ public class WaBridgeClient : IWaBridgeClient
     { _http = http; _cfg = cfg; _log = log; }
 
     public Task<bool> ConnectAsync(int accountId, CancellationToken ct = default) =>
-        PostAsync($"sessions/{accountId}/connect", ct);
+        ConnectAsync(accountId, null, ct);
+    public Task<bool> ConnectAsync(int accountId, string? engine, CancellationToken ct = default) =>
+        PostAsync($"sessions/{accountId}/connect{EngineQuery(engine)}", ct);
 
     public Task<bool> DisconnectAsync(int accountId, bool wipe = false, CancellationToken ct = default) =>
-        PostAsync($"sessions/{accountId}/disconnect?wipe={(wipe ? "true" : "false")}", ct);
+        DisconnectAsync(accountId, wipe, null, ct);
+    public Task<bool> DisconnectAsync(int accountId, bool wipe, string? engine, CancellationToken ct = default) =>
+        PostAsync($"sessions/{accountId}/disconnect?wipe={(wipe ? "true" : "false")}{EngineQueryAmp(engine)}", ct);
 
-    public async Task<string?> StatusAsync(int accountId, CancellationToken ct = default)
+    public Task<string?> StatusAsync(int accountId, CancellationToken ct = default) =>
+        StatusAsync(accountId, null, ct);
+
+    public async Task<string?> StatusAsync(int accountId, string? engine, CancellationToken ct = default)
     {
         var baseUrl = NormalizeBaseUrl(_cfg["Bridge:BaseUrl"] ?? "http://localhost:3001");
         var key = _cfg["Bridge:Key"] ?? "dev-bridge-key";
         try
         {
             var client = _http.CreateClient("bridge");
-            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/sessions/{accountId}/status");
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/sessions/{accountId}/status{EngineQuery(engine)}");
             req.Headers.Add("X-Bridge-Key", key);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(8));
@@ -242,6 +265,12 @@ public class WaBridgeClient : IWaBridgeClient
     }
 
     private record StatusResponse(string Status);
+
+    // "?engine=wweb" for WhatsApp Web accounts; empty for Baileys (the bridge default).
+    private static string EngineQuery(string? engine) =>
+        string.Equals(engine, "wweb", StringComparison.OrdinalIgnoreCase) ? "?engine=wweb" : "";
+    private static string EngineQueryAmp(string? engine) =>
+        string.Equals(engine, "wweb", StringComparison.OrdinalIgnoreCase) ? "&engine=wweb" : "";
 
     private async Task<bool> PostAsync(string path, CancellationToken ct)
     {
