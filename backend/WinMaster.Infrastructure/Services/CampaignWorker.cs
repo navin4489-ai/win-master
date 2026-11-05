@@ -86,8 +86,12 @@ public class CampaignWorker : BackgroundService
         await AutoResumeAsync(db, ct);
 
         // Process every running campaign each tick (round-robin), so one campaign's
-        // pacing can never starve the others.
-        var running = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running || (c.Status == CampaignStatus.Paused && c.PausedByConnection))
+        // pacing can never starve the others. Connection-paused campaigns are reprocessed so we
+        // detect reconnection and resume; daily_limit / restriction / failures pauses are handled
+        // by AutoResumeAsync (or need human action), so they are excluded here to avoid
+        // re-running their pause logic — and re-logging it — every 2s.
+        var running = await db.Campaigns.Where(c => c.Status == CampaignStatus.Running
+                || (c.Status == CampaignStatus.Paused && c.PausedByConnection && c.PauseReason == "connection"))
             .OrderBy(c => c.StartedAt).Select(c => c.Id).ToListAsync(ct);
         foreach (var id in running)
         {
@@ -179,7 +183,18 @@ public class CampaignWorker : BackgroundService
         var recipient = await db.CampaignRecipients
             .Where(r => r.CampaignId == campaignId && r.Status == RecipientStatus.Pending)
             .OrderBy(r => r.Id).FirstOrDefaultAsync(ct);
-        if (recipient is null) { await CompleteAsync(db, c, ct); return; }
+        if (recipient is null)
+        {
+            // No Pending recipient right now. Only COMPLETE if nothing is still mid-flight: a
+            // recipient in "Sending" state (an in-flight send, or one orphaned by a dropped
+            // session) must be allowed to retry first. Completing here would wrongly mark the
+            // campaign "done" while a message was never actually delivered. AutoResumeAsync
+            // reverts stale "Sending" rows back to Pending, so they will be picked up next tick.
+            var anySending = await db.CampaignRecipients
+                .AnyAsync(r => r.CampaignId == campaignId && r.Status == RecipientStatus.Sending, ct);
+            if (!anySending) await CompleteAsync(db, c, ct);
+            return;
+        }
 
         var accounts = await ResolveAccountsAsync(db, c, ct);
 
@@ -307,8 +322,11 @@ public class CampaignWorker : BackgroundService
         cp.NextSendDelaySec = delay;
         await db.SaveChangesAsync(ct);
 
-        // If that was the last pending recipient, complete immediately.
-        var anyLeft = await db.CampaignRecipients.AnyAsync(r => r.CampaignId == campaignId && r.Status == RecipientStatus.Pending, ct);
+        // If that was the last recipient, complete — but only when nothing is left to process
+        // (no Pending AND no in-flight Sending). This prevents a premature "Completed" while a
+        // retry is still outstanding.
+        var anyLeft = await db.CampaignRecipients.AnyAsync(r => r.CampaignId == campaignId
+            && (r.Status == RecipientStatus.Pending || r.Status == RecipientStatus.Sending), ct);
         if (!anyLeft) await CompleteAsync(db, c, ct);
     }
 

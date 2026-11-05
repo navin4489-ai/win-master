@@ -88,6 +88,34 @@ public class CampaignReliabilityTests
     }
 
     [Fact]
+    public async Task RecipientStuckInSending_DoesNotCompleteCampaign()
+    {
+        // Regression: a campaign whose only recipient is mid-flight ("Sending", e.g. orphaned by
+        // a dropped session or an in-flight send) must NOT be marked Completed. Completing here
+        // would wrongly report "done" while the message was never actually delivered.
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        using var db = NewDb(conn);
+        var c = NewCampaign(db, 1);
+
+        // Put the single recipient into the in-flight "Sending" state (none Pending).
+        var r = await db.CampaignRecipients.FirstAsync(x => x.CampaignId == c.Id);
+        r.Status = RecipientStatus.Sending;
+        r.UpdatedAt = DateTime.UtcNow; // recent, so orphan-recovery won't revert it yet
+        await db.SaveChangesAsync();
+
+        var bridge = new FakeBridge { Status = "connected" };
+        var worker = new CampaignWorker(new DummyScopeFactory(), Microsoft.Extensions.Logging.Abstractions.NullLogger<CampaignWorker>.Instance, bridge);
+        var factory = new Factory(new Channel());
+
+        await worker.ProcessDueAsync(db, factory, c.Id, CancellationToken.None);
+
+        // The campaign must stay Running (not Completed) while a send is outstanding.
+        var after = await db.Campaigns.FindAsync(c.Id);
+        Assert.NotEqual(CampaignStatus.Completed, after!.Status);
+    }
+
+    [Fact]
     public async Task Disconnect_PausesCampaign_AndReconnect_Resumes()
     {
         using var conn = new SqliteConnection("DataSource=:memory:");
