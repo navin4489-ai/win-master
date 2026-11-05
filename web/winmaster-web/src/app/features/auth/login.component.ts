@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { API_TARGETS, ApiTarget, setApiBase, currentTargetId } from '../../core/api-base';
 
 @Component({
   selector: 'app-login',
@@ -41,6 +42,16 @@ import { ToastService } from '../../core/toast.service';
         <button class="btn btn-primary" style="width:100%;height:44px;font-size:.92rem" (click)="submit()" [disabled]="loading()">
           {{ loading() ? 'Signing in…' : 'Sign in' }}
         </button>
+
+        <div class="api-switch">
+          <span class="api-label">Connect to</span>
+          <div class="seg">
+            @for (t of targets; track t.id) {
+              <button type="button" class="seg-btn" [class.active]="selected() === t.id" (click)="switchTarget(t)">{{ t.label }}</button>
+            }
+          </div>
+          <span class="api-hint">{{ selected() === 'pc' ? 'Uses your PC when it is running (needed for WhatsApp sending).' : 'Always-on cloud server.' }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -63,6 +74,13 @@ import { ToastService } from '../../core/toast.service';
     .sub { margin-top:0; margin-bottom:1.6rem; }
     .remember { display:flex; align-items:center; gap:.4rem; margin:-.15rem 0 1rem; color:var(--muted); font-size:.8rem; cursor:pointer; }
     .remember input { accent-color:var(--primary); }
+    .api-switch { margin-top:1.4rem; padding-top:1.2rem; border-top:1px solid var(--border, rgba(128,128,128,.2)); display:flex; flex-direction:column; align-items:center; gap:.5rem; }
+    .api-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
+    .seg { display:inline-flex; background:var(--panel, rgba(128,128,128,.12)); border:1px solid var(--border, rgba(128,128,128,.25)); border-radius:10px; padding:3px; gap:3px; }
+    .seg-btn { border:0; background:transparent; color:var(--muted); font-size:.82rem; font-weight:600; padding:.4rem 1.1rem; border-radius:8px; cursor:pointer; transition:all .15s; }
+    .seg-btn:hover { color:var(--text); }
+    .seg-btn.active { background:var(--primary); color:#fff; }
+    .api-hint { font-size:.72rem; color:var(--muted); text-align:center; min-height:1rem; }
     @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } .hero { display:none; } .mobile-brand { display:flex; } }
   `]
 })
@@ -74,6 +92,15 @@ export class LoginComponent implements OnInit {
   password = '';
   rememberMe = false;
   loading = signal(false);
+
+  targets: ApiTarget[] = API_TARGETS;
+  selected = signal<string>(currentTargetId());
+
+  switchTarget(t: ApiTarget) {
+    setApiBase(t.url);
+    this.selected.set(t.id);
+    this.toast.success(`Connected to ${t.label}`);
+  }
 
   ngOnInit() {
     const saved = localStorage.getItem('winmaster_saved_credentials');

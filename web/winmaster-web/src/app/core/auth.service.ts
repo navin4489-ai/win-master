@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
-import { environment } from '../../environments/environment';
+import { apiBase } from './api-base';
 import { AuthResponse, User } from './models';
 
 const ACCESS = 'wm_access';
@@ -10,7 +10,7 @@ const REFRESH = 'wm_refresh';
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private http = inject(HttpClient);
-  private base = environment.apiUrl;
+  private get base() { return apiBase(); }
 
   user = signal<User | null>(null);
   isAuthenticated = computed(() => !!this.user());
