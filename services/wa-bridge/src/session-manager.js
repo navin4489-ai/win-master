@@ -6,6 +6,11 @@ import { pushEvent } from "./callback.js";
 // Each entry: { sock, status, connecting, qr }.
 const sessions = new Map();
 
+// Reconnect backoff tracking keyed by accountId. Prevents an endless tight reconnect loop
+// (which stresses WhatsApp and risks a ban) by using exponential backoff + a retry cap.
+const reconnectAttempts = new Map();
+const MAX_RECONNECT_ATTEMPTS = 6; // 2s,4s,8s,16s,32s,60s then give up until manual Connect
+
 // Baileys is imported lazily so the bridge still boots and serves /healthz
 // even on a machine where the native-ish package failed to install.
 let _baileys = null;
@@ -150,7 +155,8 @@ export async function startSession(accountId, { reset = false } = {}) {
 
     if (connection === "open") {
       const entry = sessions.get(accountId);
-      if (entry) { entry.status = "connected"; entry.connecting = false; entry.qr = null; }
+      if (entry) { entry.status = "connected"; entry.connecting = false; entry.qr = null; entry.retries = 0; }
+      reconnectAttempts.delete(accountId); // a clean open resets the backoff
       const phoneNumber = sock.user?.id?.split(":")[0] ?? null;
       await pushEvent("connected", accountId, { phoneNumber });
       logger.info({ accountId, phoneNumber }, "session connected");
@@ -162,6 +168,7 @@ export async function startSession(accountId, { reset = false } = {}) {
       sessions.delete(accountId);
       if (loggedOut) {
         await clearDbAuthState(accountId);
+        reconnectAttempts.delete(accountId);
         await pushEvent("disconnected", accountId, { reason: "logged_out" });
         logger.warn({ accountId }, "logged out, credentials cleared");
       } else {
@@ -175,12 +182,36 @@ export async function startSession(accountId, { reset = false } = {}) {
           DisconnectReason.badAuth,
           DisconnectReason.contentPrivacy     // newer privacy/quality lock
         ].filter((x) => x !== undefined));
-        if (restrictionCodes.has(code)) {
+
+        // Code 440 = stream conflict ("replaced"): this SAME WhatsApp account is linked/open in
+        // another session (another device, browser tab, or a second bridge instance). Reconnecting
+        // immediately just kicks the other session off — which reconnects and kicks us off — an
+        // endless fight that sends nothing and stresses the number. Do NOT auto-reconnect on a
+        // conflict; report it so the user closes the other session, then reconnects once.
+        const isConflict = code === DisconnectReason.connectionReplaced || code === 440;
+
+        if (isConflict) {
+          reconnectAttempts.delete(accountId);
+          await pushEvent("disconnected", accountId, { reason: "conflict", code });
+          logger.warn({ accountId, code }, "session replaced by another WhatsApp connection — not reconnecting (close the other session, then Connect again)");
+        } else if (restrictionCodes.has(code)) {
+          reconnectAttempts.delete(accountId);
           await pushEvent("account_restricted", accountId, { code, reason: "restricted" });
           logger.warn({ accountId, code }, "account restricted/banned by WhatsApp");
         } else {
-          logger.warn({ accountId, code }, "connection closed, reconnecting");
-          setTimeout(() => startSession(accountId).catch(() => {}), 2000);
+          // Transient drop: reconnect with exponential backoff and a retry cap so a persistent
+          // failure can't hammer WhatsApp every 2s (which itself looks abusive and risks a ban).
+          const attempts = (reconnectAttempts.get(accountId) ?? 0) + 1;
+          if (attempts > MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts.delete(accountId);
+            await pushEvent("disconnected", accountId, { reason: "unreachable", code });
+            logger.warn({ accountId, code, attempts: attempts - 1 }, "giving up reconnecting after repeated failures");
+          } else {
+            reconnectAttempts.set(accountId, attempts);
+            const delayMs = Math.min(2000 * 2 ** (attempts - 1), 60000); // 2s,4s,8s… capped 60s
+            logger.warn({ accountId, code, attempt: attempts, delayMs }, "connection closed, reconnecting");
+            setTimeout(() => startSession(accountId).catch(() => {}), delayMs);
+          }
         }
       }
     }
